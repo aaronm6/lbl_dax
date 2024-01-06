@@ -176,15 +176,19 @@ static PyObject *meth_findpeaks(PyObject *self, PyObject *args) {
 }
 
 
-static PyObject *meth_highpass(PyObject *self, PyObject *args) {
+static PyObject *meth_highpass(PyObject *self, PyObject *args, PyObject *kwargs) {
 	PyArrayObject *nd_t, *nd_v;
 	double f_c;
-	if (!PyArg_ParseTuple(args, "O&O&d", 
-		PyArray_Converter, &nd_t, 
+	PyObject *first_el = PyUnicode_FromString("input");
+	static char *keyword[] = {"","","","first_el", NULL};
+	if (!PyArg_ParseTupleAndKeywords(args,kwargs, "O&O&d|O",keyword,
+		PyArray_Converter, &nd_t,
 		PyArray_Converter, &nd_v,
-		&f_c)) {
+		&f_c,
+		&first_el)) {
 		return NULL;
 	}
+	const char first_el_default[] = "input";
 	
 	int t_ndim = PyArray_NDIM(nd_t);
 	int v_ndim = PyArray_NDIM(nd_v);
@@ -222,7 +226,22 @@ static PyObject *meth_highpass(PyObject *self, PyObject *args) {
 	npy_double dt = t[1] - t[0];
 	npy_double alph = 1 / (2 * NPY_PI * dt * f_c + 1);
 	
-	v_out[0] = v[0];
+	
+	// There is ambiguity about what to set the first element in the filtered array. Here
+	// the user is given the option to set something.  Default as 'input' means "take the
+	// first element in raw signal array".
+	if (Py_IS_TYPE(first_el, &PyUnicode_Type)) {
+		if (PyUnicode_CompareWithASCIIString(first_el, first_el_default)==0) {
+			v_out[0] = v[0];
+		} else {
+			PyErr_SetString(PyExc_ValueError,"If a string is given for first_el, it must be 'input'");
+		}
+	} else if (Py_IS_TYPE(first_el, &PyFloat_Type)) {
+		v_out[0] = PyFloat_AsDouble(first_el);
+	} else {
+		PyErr_SetString(PyExc_TypeError, "'first_el' must be 'input' or a floating-point number");
+	}
+	
 	for (npy_intp i=1;i<t_nel;i++) {
 		v_out[i*vo_st] = alph * (v_out[(i-1)*vo_st] + v[i*v_st] - v[(i-1)*v_st]);
 	}
@@ -231,15 +250,19 @@ static PyObject *meth_highpass(PyObject *self, PyObject *args) {
 	return nd_v_out;
 }
 
-static PyObject *meth_lowpass(PyObject *self, PyObject *args) {
+static PyObject *meth_lowpass(PyObject *self, PyObject *args, PyObject *kwargs) {
 	PyArrayObject *nd_t, *nd_v;
 	double f_c;
-	if (!PyArg_ParseTuple(args, "O&O&d", 
-		PyArray_Converter, &nd_t, 
+	PyObject *first_el = PyUnicode_FromString("input");
+	static char *keyword[] = {"","","","first_el", NULL};
+	if (!PyArg_ParseTupleAndKeywords(args,kwargs, "O&O&d|O",keyword,
+		PyArray_Converter, &nd_t,
 		PyArray_Converter, &nd_v,
-		&f_c)) {
+		&f_c,
+		&first_el)) {
 		return NULL;
 	}
+	const char first_el_default[] = "input";
 	
 	int t_ndim = PyArray_NDIM(nd_t);
 	int v_ndim = PyArray_NDIM(nd_v);
@@ -278,7 +301,27 @@ static PyObject *meth_lowpass(PyObject *self, PyObject *args) {
 	npy_double RC_const = 2 * NPY_PI * dt * f_c;
 	npy_double alph = RC_const / (RC_const + 1.);
 	
-	v_out[0] = v[0];
+	// There is ambiguity about what to set the first element in the filtered array. Here
+	// the user is given the option to set something.  Default as 'input' means "take the
+	// first element in raw signal array".
+	if (Py_IS_TYPE(first_el, &PyUnicode_Type)) {
+		if (PyUnicode_CompareWithASCIIString(first_el, first_el_default)==0) {
+			v_out[0] = v[0];
+		} else {
+			PyErr_SetString(PyExc_ValueError,"If a string is given for first_el, it must be 'input'");
+		}
+	} else if (
+		Py_IS_TYPE(first_el, &PyFloat_Type) ||
+		Py_IS_TYPE(first_el, &PyDoubleArrType_Type) ||
+		Py_IS_TYPE(first_el, &PyFloatArrType_Type)) {
+		v_out[0] = PyFloat_AsDouble(first_el);
+	} else {
+		PyObject *el_type = (PyObject *)Py_TYPE(first_el);
+		PyObject *type_name = PyObject_GetAttrString(el_type, "__name__");
+		printf("You provided a 'first_el' of type '%s'\n", PyUnicode_AsUTF8(type_name));
+		PyErr_SetString(PyExc_TypeError, "'first_el' must be 'input' or a floating-point number");
+	}
+	
 	for (npy_intp i=1;i<t_nel;i++) {
 		v_out[i*vo_st] = v_out[(i-1)*vo_st] + alph*(v[i*v_st] - v_out[(i-1)*vo_st]);
 	}
@@ -964,18 +1007,28 @@ PyDoc_STRVAR(
 
 PyDoc_STRVAR(
 	highpass__doc__,
-	"highpass(t, v, f_c)\n--\n\n"
+	"highpass(t, v, f_c, first_el='input')\n--\n\n"
 	"t is the time array, in seconds (or in units of 1/f_c, at least)\n"
 	"v is the voltage-signal array, which will get filtered\n"
 	"f_c is the high-pass filter cutoff frequency, f_c = 1 / (2pi * RC)\n"
+	"first_el specifies what the first element in the filtered array will\n"
+	"    be.  'input' means 'set the first element of the filtered array\n"
+	"    equal to the first element of the unfiltered array.  Or a\n"
+	"    float-point number can be given to which the filtered array's\n"
+	"    first element will be set.\n"
 	"Gives a 1D numpy as output, which is the same size and dtype as v\n");
 
 PyDoc_STRVAR(
 	lowpass__doc__,
-	"lowpass(t, v, f_c)\n--\n\n"
+	"lowpass(t, v, f_c, first_el='input')\n--\n\n"
 	"t is the time array, in seconds (or in units of 1/f_c, at least)\n"
 	"v is the voltage-signal array, which will get filtered\n"
 	"f_c is the low-pass filter cutoff frequency, f_c = 1 / (2pi * RC)\n"
+	"first_el specifies what the first element in the filtered array will\n"
+	"    be.  'input' means 'set the first element of the filtered array\n"
+	"    equal to the first element of the unfiltered array.  Or a\n"
+	"    float-point number can be given to which the filtered array's\n"
+	"    first element will be set.\n"
 	"Gives a 1D numpy as output, which is the same size and dtype as v\n");
 
 PyDoc_STRVAR(
@@ -1031,8 +1084,8 @@ static PyMethodDef ProcessMethods[] = {
 	{"findpeaks",meth_findpeaks,METH_VARARGS,findpeaks__doc__},
 	{"condense_intervals",meth_condense_intervals,METH_VARARGS,condense_intervals__doc__},
 	{"get_pulseRQs",meth_get_pulseRQs,METH_VARARGS, get_pulseRQs__doc__},
-	{"highpass",meth_highpass, METH_VARARGS, highpass__doc__},
-	{"lowpass",meth_lowpass, METH_VARARGS, lowpass__doc__},
+	{"highpass",(PyCFunction)meth_highpass, METH_VARARGS|METH_KEYWORDS, highpass__doc__},
+	{"lowpass",(PyCFunction)meth_lowpass, METH_VARARGS|METH_KEYWORDS, lowpass__doc__},
 	{"arbfilt",meth_arbfilt, METH_VARARGS, arbfilt__doc__},
 	{"avebox",meth_avebox, METH_VARARGS, avebox__doc__},
 	{"S2filter",(PyCFunction)meth_S2filter, METH_VARARGS|METH_KEYWORDS, S2filter__doc__},
@@ -1058,7 +1111,7 @@ The name of the function of type PyMODINIT_FUNC has to be "PyInit_{name}", where
 of the module as it will be imported from python, and has to match the secend element of the module
 struct defined above.
  */
-PyMODINIT_FUNC PyInit_c_process(void) {
+PyMODINIT_FUNC PyInit_c_processmodule(void) {
 	import_array();
 	return PyModule_Create(&cprocess_module);
 }
