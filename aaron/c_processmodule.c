@@ -236,9 +236,14 @@ static PyObject *meth_highpass(PyObject *self, PyObject *args, PyObject *kwargs)
 		} else {
 			PyErr_SetString(PyExc_ValueError,"If a string is given for first_el, it must be 'input'");
 		}
-	} else if (Py_IS_TYPE(first_el, &PyFloat_Type)) {
+	} else if (
+		Py_IS_TYPE(first_el, &PyFloat_Type) ||
+		Py_IS_TYPE(first_el, &PyDoubleArrType_Type) ||
+		Py_IS_TYPE(first_el, &PyFloatArrType_Type)) {
 		v_out[0] = PyFloat_AsDouble(first_el);
 	} else {
+		PyObject *type_name = PyObject_GetAttrString((PyObject *)Py_TYPE(first_el), "__name__");
+		printf("You provided a 'first_el' of type '%s'\n", PyUnicode_AsUTF8(type_name));
 		PyErr_SetString(PyExc_TypeError, "'first_el' must be 'input' or a floating-point number");
 	}
 	

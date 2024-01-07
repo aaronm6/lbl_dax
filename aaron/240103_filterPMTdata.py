@@ -2,11 +2,11 @@ if 'os' not in locals():
     import os
 if 'sys' not in locals():
     import sys
-
 if 'cpr' not in locals():
     import c_processmodule as cpr
 
-dirname = '/mnt/drive1/PMT_data/'
+#dirname = '/mnt/drive1/PMT_data/'
+dirname = '/Users/me/data/HydroX/'
 fnames = os.listdir(dirname)
 itemsize = dtype('int16').itemsize
 event_length = 520
@@ -24,12 +24,17 @@ if 'd' not in locals():
         d = fromfile(ff, dtype=int16).reshape([-1,event_length])
 
 t_vec = r_[:event_length].astype(float) * t_interval
-k_show = 1
+k_show = 2
 
 # highpass(t, v, f_c)
 fc_hp = 5e5
-bl_1st100 = d[k_show,:100].astype(float).mean()
-d_k_filt = cpr.highpass(t_vec, d[k_show,:].astype(float), fc_hp, first_el=bl_1st100)
+#fc_hp = 1e4
+#bl_1st100 = d[k_show,:100].astype(float).mean()
+bl_1st100 = d[:,:100].astype(float).mean(axis=1)
+bl_Lst100 = d[:,-100:].astype(float).mean(axis=1)
+#print(type(bl_1st100))
+#d_k_filt = cpr.highpass(t_vec, d[k_show,:].astype(float), fc_hp, first_el=bl_1st100)
+d_k_filt = cpr.highpass(t_vec, d[k_show,:].astype(float), fc_hp, first_el=0.)
 
 figure(41, figsize=(10,8.5)); clf()
 
