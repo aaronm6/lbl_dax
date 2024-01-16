@@ -112,7 +112,7 @@ static PyObject *meth_avebox(PyObject *self, PyObject *args, PyObject *kwargs) {
 				f_sum -= s[(j-n_half_floor)*s_str[axis]+i*s_str[1-axis]];
 			}
 			// Third loop covers elements close to the end of the array
-			for (npy_intp j=(numEl-n_half_ceil); j<dims[axis]; j++) {
+			for (npy_intp j=(dims[axis]-n_half_ceil); j<dims[axis]; j++) {
 				f[j*f_str[axis]+i*f_str[1-axis]] = f_sum / n_dbl;
 				f_sum -= s[(j-n_half_floor)*s_str[axis]+i*s_str[1-axis]];
 			}
