@@ -93,8 +93,6 @@ static PyObject *meth_avebox(PyObject *self, PyObject *args, PyObject *kwargs) {
 			s_str[k] = s_str_bytes[k] / s_itemsize;
 			f_str[k] = f_str_bytes[k] / s_itemsize;
 		}
-		npy_intp i_maj = 0;
-		npy_intp i_min = 0;
 		for (npy_intp i=0; i<dims[1-axis]; i++) {
 			f_sum = 0.;
 			for (npy_intp j=0; j<n_half_ceil; j++) {
