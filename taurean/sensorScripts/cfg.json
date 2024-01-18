@@ -1,0 +1,37 @@
+{
+    "data_output_settings": {
+        "time_between_measurements": 10
+    },
+    "sensor_details": {
+        "cryo_con": {
+            "ip_address": "192.168.1.5",
+            "port": "2000"
+        },
+        "omega_pressure": {
+            "ip_address": "192.168.1.200",
+            "port": "2000"
+        },
+        "pfeiffer_pressure": {
+            "serial_port": "COM3"
+        }
+    },
+    "database_details" : {
+        "credentials": {
+            "username": "postgres",
+            "password": "LZ4850",
+            "database": "sensor_readings"
+        },
+        "cryo_con": {
+            "table_name": "cryo_con_temperature",
+            "column_names": ["timestamp", "temperature_kelvin", "setpoint_kelvin", "output_power_percentage"]
+        },
+        "omega_pressure": {
+            "table_name": "omega_pressure",
+            "column_names": ["timestamp", "pressure_torr"]
+        },
+        "pfeiffer_pressure": {
+            "table_name": "pfeiffer_pressure",
+            "column_names": ["timestamp", "pressure_torr"]
+        }
+    }
+}
