@@ -5,7 +5,10 @@ class omegaPressureSensor:
     # Create sensor object and make connection to specified host and port
     def __init__(self, host, port):
         self.socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        self.socket.connect((host,int(port)))
+        try:
+            self.socket.connect((host,int(port)))
+        except:
+            raise TimeoutError("Can't connect to Omega Pressure, check device connection and IP address")
 
     def getOmegaSensorPressure(self):
         command = '*G110\r'

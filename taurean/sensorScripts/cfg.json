@@ -5,14 +5,17 @@
     "sensor_details": {
         "cryo_con": {
             "ip_address": "192.168.1.5",
-            "port": "2000"
+            "port": "2000",
+            "loops": ["a"],
+            "channels": ["1"]
         },
         "omega_pressure": {
             "ip_address": "192.168.1.200",
             "port": "2000"
         },
         "pfeiffer_pressure": {
-            "serial_port": "COM3"
+            "serial_port": "COM3",
+            "channels": ["1"]
         }
     },
     "database_details" : {

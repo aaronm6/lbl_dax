@@ -14,7 +14,10 @@ class pfeifferPressureSensor:
         self.NAK = chr(21)   # \x15
 
         # Serial connection initialization
-        self.serial = serial.Serial(serialPort)
+        try:
+            self.serial = serial.Serial(serialPort)
+        except:
+            raise TimeoutError("Can't connect to pfeiffer, check device connection and com port")
 
     def getPfeifferPressure(self, channel):
         command = "PRX" + self.CR + self.LF
@@ -22,7 +25,10 @@ class pfeifferPressureSensor:
         self.serial.readline()
         self.serial.write(str.encode(self.ENQ))
         res = self.serial.readline().decode()
-        pressure = res.split(",")[2*channel - 1]
+        status = res.split(",")[2*int(channel) - 2]
+        if int(status) > 3:
+            raise ValueError("Pfeiffer is currently malfunctioning or disconnected, please check connections")
+        pressure = res.split(",")[2*int(channel) - 1]
         return pressure
 
     def close(self):

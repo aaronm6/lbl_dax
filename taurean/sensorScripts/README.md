@@ -18,7 +18,5 @@ Libraries:
 
 TODO:
     - Add load sensor library
-    - Add error handling for initialization of sensors
     - Add error handling for reading data from sensors
-    - Add cfg functionality for the channels and loops for cryo con and pfeiffer sensors
     - Create additional script to generate json/csv data from database or setup grafana page

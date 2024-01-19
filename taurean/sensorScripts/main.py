@@ -1,7 +1,8 @@
-import psycopg, time, json
+import psycopg, time, json, socket
 from datetime import datetime
 from sensorLib import cryoCon, omegaPressureSensor, pfeifferPressureSensor
 
+# Make insert query for postgres 
 def makeInsertQuery(tableName, columnList, valueList):
     columnString = "("
     valueString = "("
@@ -27,9 +28,17 @@ with open("cfg.json") as json_data:
 
     # Set up all serial and ethernet based connections
     sensorDetails = data["sensor_details"]
-    cryoConDev = cryoCon.cryoCon(sensorDetails["cryo_con"]["ip_address"], sensorDetails["cryo_con"]["port"])
-    omegaPressureDev = omegaPressureSensor.omegaPressureSensor(sensorDetails["omega_pressure"]["ip_address"], sensorDetails["omega_pressure"]["port"])
-    pfeifferDev = pfeifferPressureSensor.pfeifferPressureSensor(sensorDetails["pfeiffer_pressure"]["serial_port"])
+    try:
+        cryoConDev = cryoCon.cryoCon(sensorDetails["cryo_con"]["ip_address"], sensorDetails["cryo_con"]["port"])
+        omegaPressureDev = omegaPressureSensor.omegaPressureSensor(sensorDetails["omega_pressure"]["ip_address"], sensorDetails["omega_pressure"]["port"])
+        pfeifferDev = pfeifferPressureSensor.pfeifferPressureSensor(sensorDetails["pfeiffer_pressure"]["serial_port"])
+    except socket.timeout:
+        raise TimeoutError("One or more devices can't be connected to")
+
+    # Get channel and loop details
+    cryoConChannels = sensorDetails["cryo_con"]["channels"]
+    cryoConLoops = sensorDetails["cryo_con"]["loops"]
+    pfeifferChannels = sensorDetails["pfeiffer_pressure"]["channels"]
 
     # Make database login string
     credentials = data["database_details"]["credentials"]
@@ -60,20 +69,27 @@ try:
 
         #TODO: Make loops and channels configurable in cfg.json later
         # Get cryo con vals and send them to database
+
+        # Read set point, output power, and current temperature
         cryoConVals.append(currentTime)
-        cryoConVals.append(cryoConDev.getCryoConTemp("a"))
-        cryoConVals.append(cryoConDev.getCryoConSetPoint("1"))
-        cryoConVals.append(cryoConDev.getCryoConOutputPower("1"))
+        for loop in cryoConLoops:
+            cryoConVals.append(cryoConDev.getCryoConTemp(loop))
+        for channel in cryoConChannels:
+            cryoConVals.append(cryoConDev.getCryoConSetPoint(channel))
+            cryoConVals.append(cryoConDev.getCryoConOutputPower(channel))
         databaseCur.execute(makeInsertQuery(cryoConTable, cryoConColumns, cryoConVals))
         cryoConVals = []
 
+        # Read pressure
         omegaPressureVals.append(currentTime)
         omegaPressureVals.append(omegaPressureDev.getOmegaSensorPressure())
         databaseCur.execute(makeInsertQuery(omegaPressureTable, omegaPressureColumns, omegaPressureVals))
         omegaPressureVals = []
 
+        # Read vacuum
         pfeifferVals.append(currentTime)
-        pfeifferVals.append(pfeifferDev.getPfeifferPressure(1))
+        for channel in pfeifferChannels:
+            pfeifferVals.append(pfeifferDev.getPfeifferPressure(channel))
         databaseCur.execute(makeInsertQuery(pfeifferTable, pfeifferColumns, pfeifferVals))
         pfeifferVals = []
 
@@ -83,7 +99,9 @@ try:
         if counter % 5 == 0:
             print("5 submissions made")
 
-except:
+except Exception as e:
+    print(e)
+    # Shutdown when exception is triggered
     cryoConDev.close()
     pfeifferDev.close()
     omegaPressureDev.close()
