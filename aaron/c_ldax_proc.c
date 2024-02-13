@@ -19,7 +19,216 @@ npy_intp intp_min(npy_intp a, npy_intp b) {
 	return b;
 }
 
+void testcopy(PyObject *args) {
+	printf("...............JUST COPYING....\n");
+	PyObject *nd_s, *nd_f;
+	long n;
+	if (!PyArg_ParseTuple(args, "O&O&l",
+		PyArray_Converter, &nd_s,
+		PyArray_Converter, &nd_f,
+		&n)) {
+		PyErr_SetString(PyExc_ValueError,"Something wrong with inputs unpacking");
+	}
+	npy_intp numel = PyArray_SIZE(nd_s);
+	npy_intp numelf = PyArray_SIZE(nd_f);
+	printf("numel = %li\n", numel);
+	if (numel != numelf) {
+		PyErr_SetString(PyExc_IndexError, "Input and output rows must have the same length");
+	}
+	npy_float64 *s_el, *f_el; // s_el is the pointer to an element in nd_i, f_el in nd_o
+	for (npy_intp i=0; i<numel; i++) {
+		s_el = (npy_float64 *)PyArray_GETPTR1(nd_s, i);
+		f_el = (npy_float64 *)PyArray_GETPTR1(nd_f, i);
+		*f_el = *s_el;
+	}
+}
+
+void avebox_row(PyObject *args) {
+	printf("RUNNING AVEBOX\n");
+	PyObject *nd_s, *nd_f;
+	long n;
+	if (!PyArg_ParseTuple(args, "O&O&l",
+		PyArray_Converter, &nd_s,
+		PyArray_Converter, &nd_f,
+		&n)) {
+		PyErr_SetString(PyExc_ValueError,"Something wrong with inputs unpacking");
+	}
+	npy_intp numel = PyArray_SIZE(nd_s);
+	npy_intp numelf = PyArray_SIZE(nd_f);
+	if (numel != numelf) {
+		PyErr_SetString(PyExc_IndexError, "Input and output rows must have the same length");
+	}
+	npy_float64 *s_el, *f_el; // s_el is the pointer to an element in nd_i, f_el in nd_o
+	npy_float64 f_sum = 0.;
+	npy_float64 n_dbl = (npy_float64)n;
+	npy_intp n_half_floor = (npy_intp)(n/2);
+	npy_intp n_half_ceil = n_half_floor + 1;
+	
+	// Get the sum of the first half-box elements
+	for (npy_intp i=0; i<n_half_ceil; i++) {
+		s_el = (npy_float64 *)PyArray_GETPTR1(nd_s, i);
+		f_sum += *s_el;
+	}
+	
+	// Now do the actual filtering
+	// First loop covers elements whose indices are less than half the width of the box
+	for (npy_intp i=0; i<n_half_floor; i++) {
+		s_el = (npy_float64 *)PyArray_GETPTR1(nd_s, i);
+		f_el = (npy_float64 *)PyArray_GETPTR1(nd_f, i);
+		*f_el = f_sum / n_dbl;
+		f_sum += *((npy_float64 *)PyArray_GETPTR1(nd_s, i+n_half_ceil));
+	}
+	
+	// Second for loop covers the main array (apart from the end bit)
+	for (npy_intp i=n_half_floor; i<(numel-n_half_ceil); i++) {
+		s_el = (npy_float64 *)PyArray_GETPTR1(nd_s, i);
+		f_el = (npy_float64 *)PyArray_GETPTR1(nd_f, i);
+		*f_el = f_sum / n_dbl;
+		f_sum += *((npy_float64 *)PyArray_GETPTR1(nd_s, i+n_half_ceil));
+		f_sum -= *((npy_float64 *)PyArray_GETPTR1(nd_s, i-n_half_floor));
+	}
+	
+	// Third for loop covers elements whose indices are closer to the end of the
+	// array than half the width of the box
+	for (npy_intp i=(numel-n_half_ceil); i<numel; i++) {
+		s_el = (npy_float64 *)PyArray_GETPTR1(nd_s, i);
+		f_el = (npy_float64 *)PyArray_GETPTR1(nd_f, i);
+		*f_el = f_sum / n_dbl;
+		f_sum -= *((npy_float64 *)PyArray_GETPTR1(nd_s,i-n_half_floor));
+	}
+	
+	//Py_DECREF(nd_s);
+	//Py_DECREF(nd_f);
+}
+
+void rowbyrow(void (*f)(PyObject *args), PyObject *nd_i, PyObject *nd_o, long axis, PyObject *optargs) {
+	// This function needs to take in the input array (1 or 2d) AND the output array.
+	// Also it needs the axis, to know which axis to break off 1d slices (row, by
+	// default, i.e. axis=1).  For avebox, n (box size) would go in optargs (a tuple)
+	if (axis < -1) {
+		PyErr_SetString(PyExc_ValueError, "Optional input 'axis' must be an integer greater than -1");
+	}
+	int ndim = PyArray_NDIM(nd_i);
+	npy_intp *dims = PyArray_DIMS(nd_i);
+	printf("\tndim = %i; nd_i.dims = (%li, %li)\n", ndim, dims[0], dims[1]);
+	printf("\tRBR ---- optargs' Py_REFCNT = %li\n", Py_REFCNT(optargs));
+	Py_ssize_t optarg_length = PyTuple_Size(optargs);
+	PyObject *passargs = PyTuple_New(2 + optarg_length);
+	// Fill in the optional arguments
+	for (int i=0; i<optarg_length; i++) {
+		PyTuple_SetItem(passargs, i+2, PyTuple_GetItem(optargs,i));
+	}
+	printf("\tRBR ---- n's Py_REFCNT = %li\n", Py_REFCNT(PyTuple_GetItem(optargs,0)));
+	fflush(stdout);
+	if (ndim == 1) {
+		//Py_INCREF(nd_i);
+		//Py_INCREF(nd_o);
+		PyTuple_SetItem(passargs, 0, nd_i);
+		PyTuple_SetItem(passargs, 1, nd_o);
+		f(passargs);
+		Py_DECREF(passargs);
+		Py_DECREF(nd_i);
+		Py_DECREF(nd_o);
+	} else {
+		//Py_INCREF(nd_s);
+		//Py_INCREF(nd_f);
+		//avebox_row((PyObject *)nd_s, (PyObject *)nd_f, n);
+		PyObject *slice_fix = PySlice_New(NULL, NULL, NULL);
+		//PyObject *slice_fix = PySlice_New(Py_None, Py_None, Py_None);
+		//PyObject **p_slice_fix = &slice_fix;
+		PyObject *row_num[1];
+		PyObject *slices;
+		PyObject *sl_i, *sl_o;
+		//slices = PyTuple_Pack(2, PyLong_FromLong(1L), slice_fix);
+		//sl_i = PyObject_GetItem(nd_i, slices);
+		//npy_intp slSize = PyArray_SIZE(sl_i);
+		//printf("slSize = %li\n", slSize);
+		PyObject **pp0, **pp1;
+		if (axis==1) {
+			pp0 = row_num;
+			pp1 = &slice_fix;
+			//pp1 = p_slice_fix;
+		} else if (axis==0) {
+			pp0 = &slice_fix;
+			//pp0 = p_slice_fix;
+			pp1 = row_num;
+		} else {
+			PyErr_SetString(PyExc_ValueError, "Input 'axis' must be 0 or 1");
+		}
+		PyObject *p_i = (PyObject *)nd_i;
+		PyObject *p_o = (PyObject *)nd_o;
+		//PyObject *passargs = 
+		for (npy_intp i=0; i<dims[1-axis]; i++) {
+			*row_num = PyLong_FromLong(i);
+			printf("Getting row: %li\n", PyLong_AsLong(*row_num));
+			slices = PyTuple_Pack(2, *pp0, *pp1);
+			sl_i = PyObject_GetItem(p_i, slices);
+			printf("len(sl_i) = %li\n", PyArray_SIZE(sl_i));
+			sl_o = PyObject_GetItem(p_o, slices);
+			PyTuple_SetItem(passargs, 0, sl_i);
+			PyTuple_SetItem(passargs, 1, sl_o);
+			f(passargs);
+			Py_DECREF(*row_num);
+			Py_DECREF(slices);
+			Py_DECREF(sl_i);
+			Py_DECREF(sl_o);
+		}
+		printf("\tRBR --- postcall --- passargs' Py_REFCNT = %li\n", Py_REFCNT(passargs));
+		printf("\tRBR --- postcall --- optargs' Py_REFCNT = %li\n", Py_REFCNT(optargs));
+		Py_DECREF(passargs);
+		printf("\tRBR --- lastline --- passargs' Py_REFCNT = %li\n", Py_REFCNT(passargs));
+		//Py_DECREF(nd_i);
+		//Py_DECREF(nd_o);
+		fflush(stdout);
+	}
+}
+
 /* ----------------- <MODULE FUNCTIONS> ----------------- */
+static PyObject *meth_avebox_rbr(PyObject *self, PyObject *args, PyObject *kwargs) {
+	static char *keywords[] = {"signal", "n", "axis", NULL};
+	PyArrayObject *nd_s;
+	PyObject *n;
+	long axis=1;
+	if (!PyArg_ParseTupleAndKeywords(args, kwargs, "O&O|l", keywords,
+		PyArray_Converter, &nd_s,
+		&n,
+		&axis)) {
+		return NULL;
+	}
+	if ((PyLong_AsLong(n)%2)==0) {
+		PyErr_SetString(PyExc_ValueError, "Input 'n' must be an ODD number");
+	}
+	if (PyArray_TYPE(nd_s) != NPY_FLOAT64) {
+		PyErr_SetString(PyExc_TypeError, "Input array 's_raw' must be of dtype numpy.float64");
+	}
+	printf("**** C start**** ---- n's Py_REFCNT = %li\n", Py_REFCNT(n));
+	PyObject *nd_f = PyArray_NewLikeArray(nd_s, NPY_ANYORDER, NULL, 1);
+	printf("nd_f refcount   : %li\n", Py_REFCNT(nd_f));
+	PyObject *optargs = PyTuple_Pack(1, n);
+	printf("**** C pack**** ---- n's Py_REFCNT = %li\n", Py_REFCNT(n));
+	printf("**** C pack**** ---- optargs' Py_REFCNT = %li\n", Py_REFCNT(optargs));
+	Py_INCREF(nd_s);
+	Py_INCREF(nd_f);
+	fflush(stdout);
+	rowbyrow(avebox_row, (PyObject *)nd_s, nd_f, axis, optargs);
+	//rowbyrow(testcopy, (PyObject *)nd_s, nd_f, axis, optargs);
+	printf("**** C post-rowbyrow**** ---- n's Py_REFCNT = %li\n", Py_REFCNT(n));
+	printf("**** C post-rowbyrow**** ---- optargs' Py_REFCNT = %li\n", Py_REFCNT(optargs));
+	printf("nd_f refcount   : %li\n", Py_REFCNT(nd_f));
+	printf("nd_s refcount   : %li\n", Py_REFCNT(nd_s));
+	Py_DECREF(nd_s);
+	printf("nd_s refcount   : %li\n", Py_REFCNT(nd_s));
+	Py_DECREF(optargs);
+	printf("n's refcount    : %li\n", Py_REFCNT(n));
+	printf("nd_s refcount   : %li\n", Py_REFCNT(nd_s));
+	printf("optargs refcount: %li\n", Py_REFCNT(optargs));
+	
+	printf("nd_f refcount   : %li\n", Py_REFCNT(nd_f));
+	Py_INCREF(n);
+	printf("**** C ending **** ---- n's Py_REFCNT = %li\n", Py_REFCNT(n));
+	fflush(stdout);
+	return nd_f;
+}
 static PyObject *meth_avebox(PyObject *self, PyObject *args, PyObject *kwargs) {
 	/* Usage: s_filt = avebox(s_raw, n, axis=1)
 		 s_raw: raw signal.  Numpy array either 1d, or 2d.  If 2d, 
@@ -45,9 +254,6 @@ static PyObject *meth_avebox(PyObject *self, PyObject *args, PyObject *kwargs) {
 	if (axis < -1) {
 		PyErr_SetString(PyExc_ValueError, "Optional input 'axis' must be an integer greater than -1");
 	}
-	//if (axis != 1) {
-	//	PyErr_SetString(PyExc_ValueError, "Sorry, 'axis=1' is currently the only allowed value.");
-	//}
 	int ndim = PyArray_NDIM(nd_s);
 	if (ndim > 2) {
 		PyErr_SetString(PyExc_TypeError, "Input raw signal 's_raw' must be 1d or 2d");
@@ -57,84 +263,53 @@ static PyObject *meth_avebox(PyObject *self, PyObject *args, PyObject *kwargs) {
 	}
 	// nd_f will be the filtered signal array
 	PyObject *nd_f = PyArray_NewLikeArray(nd_s, NPY_ANYORDER, NULL, 1);
-	npy_intp numEl = PyArray_SIZE(nd_s);
-	npy_intp *dims = PyArray_DIMS(nd_s);
 	
-	npy_float64 *s_el, *f_el; // pointers to individual array elements
-	npy_float64 n_dbl = (npy_float64)n;
-	npy_intp n_half_floor = (npy_intp)(n/2);
-	npy_intp n_half_ceil = n_half_floor + 1;
-	npy_float64 f_sum;
+	PyObject *py_n = PyLong_FromLong(n);
+	
+	npy_intp *dims = PyArray_DIMS(nd_s);
+	PyObject *args_tuple;
 	if (ndim==1) {
-		npy_float64 *s_el, *f_el; // pointers to individual array elements
-		f_sum = 0.;
-		for (npy_intp i=0; i<n_half_ceil; i++) {
-			s_el = (npy_float64 *)PyArray_GETPTR1(nd_s, i);
-			f_sum += *s_el;
-		}
-		//First for loop covers elements whose indices are less than half the width of the box
-		for (npy_intp i=0; i<n_half_floor; i++) {
-			s_el = (npy_float64 *)PyArray_GETPTR1(nd_s, i);
-			f_el = (npy_float64 *)PyArray_GETPTR1(nd_f, i);
-			*f_el = f_sum / n_dbl;
-			f_sum += s_el[n_half_ceil];
-		}
-		
-		//Second for loop covers the main array
-		for (npy_intp i=n_half_floor; i<(numEl-n_half_ceil); i++) {
-			s_el = (npy_float64 *)PyArray_GETPTR1(nd_s, i);
-			f_el = (npy_float64 *)PyArray_GETPTR1(nd_f, i);
-			*f_el = f_sum / n_dbl;
-			f_sum += s_el[n_half_ceil];
-			f_sum -= s_el[-n_half_floor];
-		}
-		
-		//Third for loop covers the elements whose indices are closer to the end of the
-		//array than half the width of the box
-		for (npy_intp i=(numEl-n_half_ceil); i<numEl; i++) {
-			s_el = (npy_float64 *)PyArray_GETPTR1(nd_s, i);
-			f_el = (npy_float64 *)PyArray_GETPTR1(nd_f, i);
-			*f_el = f_sum / n_dbl;
-			f_sum -= s_el[-n_half_floor];
-		}
+		Py_INCREF(nd_s);
+		Py_INCREF(nd_f);
+		//avebox_row((PyObject *)nd_s, (PyObject *)nd_f, n);
+		args_tuple = PyTuple_Pack(3,(PyObject *)nd_s, (PyObject *)nd_f, py_n);
+		avebox_row(args_tuple);
+		Py_DECREF(args_tuple);
 	} else {
-		npy_float64 *s = (npy_float64 *)PyArray_DATA(nd_s);
-		npy_float64 *f = (npy_float64 *)PyArray_DATA(nd_f);
-		npy_intp *s_str_bytes = PyArray_STRIDES(nd_s);
-		npy_intp *f_str_bytes = PyArray_STRIDES(nd_f);
-		npy_intp s_str[ndim], f_str[ndim];
-		npy_intp s_itemsize = PyArray_ITEMSIZE(nd_s);
-		for (int k=0; k<ndim; k++) {
-			s_str[k] = s_str_bytes[k] / s_itemsize;
-			f_str[k] = f_str_bytes[k] / s_itemsize;
-		}
+		PyObject *slice_row = PySlice_New(NULL, NULL, NULL);
+		PyObject *row_num, *slices;
+		PyObject *sl_s, *sl_f;
+		PyObject *p_s = (PyObject *)nd_s;
+		PyObject *p_f = (PyObject *)nd_f;
+		//loop over rows:
 		for (npy_intp i=0; i<dims[1-axis]; i++) {
-			f_sum = 0.;
-			for (npy_intp j=0; j<n_half_ceil; j++) {
-				f_sum += s[j*s_str[axis]+i*s_str[1-axis]];
+			row_num = PyLong_FromLong(i);
+			if (axis==1) {
+				slices = PyTuple_Pack(2, row_num, slice_row);
+			} else {
+				slices = PyTuple_Pack(2, slice_row, row_num);
 			}
-			// First loop covers elements whose indices are less than half the width of the box
-			for (npy_intp j=0; j<n_half_floor; j++) {
-				f[j*f_str[axis]+i*f_str[1-axis]] = f_sum / n_dbl;
-				f_sum += s[(j+n_half_ceil)*s_str[axis]+i*s_str[1-axis]];
-			}
-			// Second loop covers the main signal
-			for (npy_intp j=n_half_floor; j<(dims[axis]-n_half_ceil); j++) {
-				f[j*f_str[axis]+i*f_str[1-axis]] = f_sum / n_dbl;
-				f_sum += s[(j+n_half_ceil)*s_str[axis]+i*s_str[1-axis]];
-				f_sum -= s[(j-n_half_floor)*s_str[axis]+i*s_str[1-axis]];
-			}
-			// Third loop covers elements close to the end of the array
-			for (npy_intp j=(dims[axis]-n_half_ceil); j<dims[axis]; j++) {
-				f[j*f_str[axis]+i*f_str[1-axis]] = f_sum / n_dbl;
-				f_sum -= s[(j-n_half_floor)*s_str[axis]+i*s_str[1-axis]];
-			}
+			sl_s = PyObject_GetItem(p_s, slices);
+			sl_f = PyObject_GetItem(p_f, slices);
+			//sl_f = PyObject_GetItem(nd_f, slices);
+			Py_INCREF(sl_s);
+			Py_INCREF(sl_f);
+			//avebox_row(sl_s, sl_f, n);
+			args_tuple = PyTuple_Pack(3,sl_s, sl_f, py_n);
+			avebox_row(args_tuple);
+			Py_DECREF(args_tuple);
+			Py_DECREF(row_num);
+			Py_DECREF(slices);
+			Py_DECREF(sl_s);
+			Py_DECREF(sl_f);
 		}
+		Py_DECREF(slice_row);
 	}
 	Py_DECREF(nd_s);
+	Py_DECREF(py_n);
 	return nd_f;
 }
-
+/*
 static PyObject *meth_arbfilt(PyObject *self, PyObject *args, PyObject *kwargs) {
 	PyArrayObject *nd_d, *nd_f;
 	long axis = 1;
@@ -369,7 +544,7 @@ static PyObject *meth_findpulses(PyObject *self, PyObject *args, PyObject *kwarg
 	Py_DECREF(nd_d);
 	return nd_o;
 }
-
+*/
 /* ----------------- </MODULE FUNCTIONS> ----------------- */
 
 
@@ -383,18 +558,21 @@ PyDoc_STRVAR(
 	"  axis: If s_raw is 2d, the filtering will occur along this axis.\n"
 	"        Default is axis=1, which means along the ROWS.\n"
 	"s_filt: The filtered signal.  Will have the same size as s_raw.");
+/*
 PyDoc_STRVAR(
 	arbfilt__doc__,
 	"arbfilt(s_raw, filt_array, axis=1)\n--\n\n"
 	"Apply an arbitrary filter shape to the signal.  Same usage as avebox.");
-
+*/
 static PyMethodDef ldax_methods[] = {
 	{"avebox", (PyCFunction)meth_avebox,METH_VARARGS|METH_KEYWORDS, avebox__doc__},
-	{"arbfilt",(PyCFunction)meth_arbfilt,METH_VARARGS|METH_KEYWORDS, arbfilt__doc__},
-	{"findpeaks",(PyCFunction)meth_findpeaks,METH_VARARGS|METH_KEYWORDS,"help documentation..."},
+	{"avebox_rbr",(PyCFunction)meth_avebox_rbr,METH_VARARGS|METH_KEYWORDS, "temp"},
 	{NULL, NULL, 0, NULL}
 };
-
+/*
+	{"arbfilt",(PyCFunction)meth_arbfilt,METH_VARARGS|METH_KEYWORDS, arbfilt__doc__},
+	{"findpeaks",(PyCFunction)meth_findpeaks,METH_VARARGS|METH_KEYWORDS,"help documentation..."},
+*/
 static struct PyModuleDef ldax_module = {
 	PyModuleDef_HEAD_INIT,
 	"ldax_methods",
