@@ -19,8 +19,58 @@ npy_intp intp_min(npy_intp a, npy_intp b) {
 	return b;
 }
 
+PyArrayObject *slice_1d(PyObject *array, long idx, long axis) {
+	// axis=0 means: slice off a column
+	// axis=1 means: slice off a row
+	PyArrayObject *n_array;
+	int ndim_i = PyArray_NDIM(array);
+	npy_intp *dims_i = PyArray_DIMS(array);
+	npy_intp *strides_i = PyArray_STRIDES(array);
+	
+	npy_intp ndim_s = 1;
+	npy_intp dims_s[] = {dims_i[axis]};
+	npy_intp strides_s[] = {strides_i[axis]};
+	
+	Py_INCREF(PyArray_DESCR(array));
+	
+	n_array = (PyArrayObject *)PyArray_NewFromDescr(
+		&PyArray_Type,
+		PyArray_DESCR(array),
+		ndim_s,
+		dims_s,
+		strides_s,
+		PyArray_DATA(array) + idx * strides_i[1-axis],
+		PyArray_FLAGS(array),
+		(PyObject *)array);
+	
+	n_array->base = ((PyArrayObject *)array)->base ? ((PyArrayObject *)array)->base : array;
+	Py_INCREF(n_array->base);
+	
+	return n_array;
+}
+void next_idx(PyArrayObject *sl_r, long axis) {
+	// sl_r should have been produced as a 1d slice, e.g. from slice_1d above
+	// axis=0 means: sl_r is a row of the 2d base array. next_idx will point to the next row.
+	// axis=1 means: sl_r is a column of the 2d base array. next_idx will point to the next column.
+	// The incrementing wraps around so one should never be pointing to memory outside the base
+	// array's data.
+	if (!(sl_r->base)) {
+		PyErr_SetString(PyExc_ValueError, "Only a 1d view of a 2d array can be incremented");
+	}
+	int ndim_base = PyArray_NDIM(sl_r->base);
+	npy_intp *dims_base = PyArray_DIMS(sl_r->base);
+	npy_intp *strides_base = PyArray_STRIDES(sl_r->base);
+	void *base_data = PyArray_DATA(sl_r->base);
+	
+	npy_intp current_slice = (npy_intp)(PyArray_DATA(sl_r) - PyArray_DATA(sl_r->base)) / 
+		strides_base[1-axis];
+	npy_intp next_slice = (current_slice + 1) % dims_base[1-axis]; // wrap around if at the end.
+	sl_r->data = base_data + next_slice * strides_base[1-axis];
+}
+
 void avebox_row(PyObject *args) {
 	PyObject *nd_s, *nd_f;
+	//printf("\t\t\taveboxrow ---start--- Py_REFCNT(args[0]) = %li\n", Py_REFCNT(PyTuple_GetItem(args, 0)));
 	long n;
 	if (!PyArg_ParseTuple(args, "O&O&l",
 		PyArray_Converter, &nd_s,
@@ -28,6 +78,7 @@ void avebox_row(PyObject *args) {
 		&n)) {
 		PyErr_SetString(PyExc_ValueError,"Something wrong with inputs unpacking");
 	}
+	//printf("\t\t\taveboxrow ---postparse--- Py_REFCNT(args[0]) = %li\n", Py_REFCNT(PyTuple_GetItem(args, 0)));
 	npy_intp numel = PyArray_SIZE(nd_s);
 	npy_intp numelf = PyArray_SIZE(nd_f);
 	if (numel != numelf) {
@@ -71,7 +122,10 @@ void avebox_row(PyObject *args) {
 		*f_el = f_sum / n_dbl;
 		f_sum -= *((npy_float64 *)PyArray_GETPTR1(nd_s,i-n_half_floor));
 	}
-	
+	Py_DECREF(nd_s);
+	Py_DECREF(nd_f);
+	//printf("\t\t\taveboxrow ---end--- Py_REFCNT(args[0]) = %li\n", Py_REFCNT(PyTuple_GetItem(args, 0)));
+	//fflush(stdout);
 }
 
 void rowbyrow(void (*f)(PyObject *args), PyObject *nd_i, PyObject *nd_o, long axis, PyObject *optargs) {
@@ -85,7 +139,6 @@ void rowbyrow(void (*f)(PyObject *args), PyObject *nd_i, PyObject *nd_o, long ax
 	npy_intp *dims = PyArray_DIMS(nd_i);
 	Py_ssize_t optarg_length = PyTuple_Size(optargs);
 	PyObject *passargs = PyTuple_New(2 + optarg_length);
-	// Fill in the optional arguments
 	for (int i=0; i<optarg_length; i++) {
 		PyTuple_SetItem(passargs, i+2, PyTuple_GetItem(optargs,i));
 	}
@@ -98,37 +151,18 @@ void rowbyrow(void (*f)(PyObject *args), PyObject *nd_i, PyObject *nd_o, long ax
 		Py_DECREF(nd_i);
 		Py_DECREF(nd_o);
 	} else {
-		PyObject *slice_fix = PySlice_New(NULL, NULL, NULL);
-		PyObject *row_num[1];
-		PyObject *slices;
-		PyObject *sl_i, *sl_o;
-		PyObject **pp0, **pp1;
-		if (axis==1) {
-			pp0 = row_num;
-			pp1 = &slice_fix;
-		} else if (axis==0) {
-			pp0 = &slice_fix;
-			pp1 = row_num;
-		} else {
-			PyErr_SetString(PyExc_ValueError, "Input 'axis' must be 0 or 1");
-		}
-		PyObject *p_i = (PyObject *)nd_i;
-		PyObject *p_o = (PyObject *)nd_o;
+		PyArrayObject *sl_i = slice_1d(nd_i, 0L, axis);
+		PyArrayObject *sl_o = slice_1d(nd_o, 0L, axis);
+		PyTuple_SetItem(passargs, 0, (PyObject *)sl_i);
+		PyTuple_SetItem(passargs, 1, (PyObject *)sl_o);
 		for (npy_intp i=0; i<dims[1-axis]; i++) {
-			*row_num = PyLong_FromLong(i);
-			slices = PyTuple_Pack(2, *pp0, *pp1);
-			sl_i = PyObject_GetItem(p_i, slices);
-			sl_o = PyObject_GetItem(p_o, slices);
-			PyTuple_SetItem(passargs, 0, sl_i);
-			PyTuple_SetItem(passargs, 1, sl_o);
 			f(passargs);
-			Py_DECREF(*row_num);
-			Py_DECREF(slices);
-			Py_DECREF(sl_i);
-			Py_DECREF(sl_o);
+			next_idx(sl_i, axis);
+			next_idx(sl_o, axis);
 		}
+		//Py_DECREF(sl_i);
+		//Py_DECREF(sl_o);
 		Py_DECREF(passargs);
-		Py_DECREF(slice_fix);
 		Py_DECREF(nd_i);
 		Py_DECREF(nd_o);
 	}
