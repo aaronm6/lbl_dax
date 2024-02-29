@@ -43,7 +43,19 @@ PyArrayObject *slice_1d(PyObject *array, long idx, long axis) {
 		PyArray_FLAGS(array),
 		(PyObject *)array);
 	
-	n_array->base = ((PyArrayObject *)array)->base ? ((PyArrayObject *)array)->base : array;
+	//n_array->base = ((PyArrayObject *)array)->base ? ((PyArrayObject *)array)->base : array;
+	/* 
+	 Technically, the base of an array needs to be the array that owns the data, which might
+	 not be 'array' (if 'array' was built from another object).  So for example:
+	 >>> a0 = np.array([0,1,2,3,4,5]) # i.e. 1d
+	 >>> a = a.reshape((2,3)) # i.e. 2d, 2 rows, 3 columns: [[0,1,2],[3,4,5]]
+	 >>> b = slice1d(a, 1, axis=1) # b = [3,4,5] 1d
+	 In the above, a's base is a0, and also b's base SHOULD also be a0, since a0 owns the data.
+	 But in these functions, we need to be able to access the dimensions of the most-recent 
+	 parent from which b was sliced, so we set 'a' as the base of b (even though 'a' 
+	 doesn't own its data).
+	*/
+	n_array->base = array;
 	Py_INCREF(n_array->base);
 	
 	return n_array;
@@ -101,7 +113,8 @@ void avebox_row(PyObject *args) {
 	for (npy_intp i=0; i<n_half_floor; i++) {
 		s_el = (npy_float64 *)PyArray_GETPTR1(nd_s, i);
 		f_el = (npy_float64 *)PyArray_GETPTR1(nd_f, i);
-		*f_el = f_sum / n_dbl;
+		//*f_el = f_sum / n_dbl;
+		*f_el = f_sum / ((npy_float64)(n_half_ceil + i));
 		f_sum += *((npy_float64 *)PyArray_GETPTR1(nd_s, i+n_half_ceil));
 	}
 	
@@ -119,7 +132,8 @@ void avebox_row(PyObject *args) {
 	for (npy_intp i=(numel-n_half_ceil); i<numel; i++) {
 		s_el = (npy_float64 *)PyArray_GETPTR1(nd_s, i);
 		f_el = (npy_float64 *)PyArray_GETPTR1(nd_f, i);
-		*f_el = f_sum / n_dbl;
+		//*f_el = f_sum / n_dbl;
+		*f_el = f_sum / ((npy_float64)(n_half_ceil + (numel-i-1)));
 		f_sum -= *((npy_float64 *)PyArray_GETPTR1(nd_s,i-n_half_floor));
 	}
 	Py_DECREF(nd_s);
@@ -195,6 +209,36 @@ static PyObject *meth_avebox(PyObject *self, PyObject *args, PyObject *kwargs) {
 	Py_DECREF(optargs);
 	return nd_f;
 }
+
+static PyObject *meth_slice1d(PyObject *self, PyObject *args, PyObject *kwargs) {
+	PyArrayObject *nd_i;
+	long idx;
+	long axis = 1L;
+	static char *keywords[] = {"", "", "axis", NULL};
+	if (!PyArg_ParseTupleAndKeywords(args, kwargs, "O&l|l", keywords,
+		PyArray_Converter, &nd_i,
+		&idx,
+		&axis)) {
+		return NULL;
+	}
+	PyArrayObject *nd_o = slice_1d((PyObject *)nd_i, idx, axis);
+	Py_DECREF(nd_i);
+	return (PyObject *)nd_o;
+}
+
+static PyObject *meth_next_idx(PyObject *self, PyObject *args, PyObject *kwargs) {
+	PyArrayObject *nd_i;
+	long axis = 1L;
+	static char *keywords[] = {"", "axis", NULL};
+	if (!PyArg_ParseTupleAndKeywords(args, kwargs, "O&|l", keywords,
+		PyArray_Converter, &nd_i, &axis)) {
+		return NULL;
+	}
+	next_idx(nd_i, axis);
+	Py_DECREF(nd_i);
+	Py_RETURN_NONE;
+}
+
 /*
 static PyObject *meth_findpulses(PyObject *self, PyObject *args, PyObject *kwargs) {
 	// find peaks twice.  I.e. will find the max, step left and right, record.  find the next max, repeat.
@@ -341,8 +385,19 @@ PyDoc_STRVAR(
 	"  axis: If s_raw is 2d, the filtering will occur along this axis.\n"
 	"        Default is axis=1, which means along the ROWS.\n"
 	"s_filt: The filtered signal.  Will have the same size as s_raw.");
+PyDoc_STRVAR(
+	slice1d__doc__,
+	"slice1d(arr, idx, axis=1)\n--\n\n"
+	"Slice a 1-dimensional array from a 2d array.");
+
+PyDoc_STRVAR(
+	next_idx__doc__,
+	"next_idx(arr, axis=1)\n--\n\n"
+	"Take a 1d slice from a 2d array, and increment which row or column it came from.");
 static PyMethodDef ldax_methods[] = {
 	{"avebox", (PyCFunction)meth_avebox,METH_VARARGS|METH_KEYWORDS, avebox__doc__},
+	{"slice1d", (PyCFunction)meth_slice1d, METH_VARARGS|METH_KEYWORDS, slice1d__doc__},
+	{"next_idx", (PyCFunction)meth_next_idx, METH_VARARGS|METH_KEYWORDS, next_idx__doc__},
 	{NULL, NULL, 0, NULL}
 };
 
