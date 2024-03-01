@@ -29,15 +29,15 @@ if load_filt:
         filesize_bytes = ff.tell()
         ff.seek(0,0)
         num_events = int(filesize_bytes / itemsize / event_length)
-        d_raw = empty((num_events, event_length), dtype=int16)
+        d_raw = empty((num_events, event_length))
         d_raw.ravel()[:] = fromfile(ff, dtype=int16)[:]
         # Calculate baseline and subtract
         n_baseline = 100 # number of samples over which to average
-        bs_s = d_raw[:,:n_baseline].astype(float64).mean(axis=1) # baseline from the start of the trace
-        bs_e = d_raw[:,(-n_baseline):].astype(float64).mean(axis=1) # baseline from the end of the trace
+        bs_s = d_raw[:,:n_baseline].mean(axis=1) # baseline from the start of the trace
+        bs_e = d_raw[:,(-n_baseline):].mean(axis=1) # baseline from the end of the trace
         bs_ave = .5 * (bs_s + bs_e)
         
-        d_raw = -d_raw.astype(float64) + tile(c_[bs_ave],(1,event_length))
+        d_raw = -d_raw + tile(c_[bs_ave],(1,event_length))
 
 
 if load_filt:
