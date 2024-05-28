@@ -6,4 +6,29 @@ To launch the grafana server:
 3. Run the following command: "start grafana-server.exe"
 4. Launches the server on port 3000, should be able to access site on lenovo laptop through web browser: http://localhost:3000/
 
-[ADD MORE INSTRUCTIONS LATER REGARDING RUNNING AND SETTING UP DASHBOARDS]
+In order to add a database to grafana:
+1. Go to "Menu" -> "Dashboard" -> "New"
+2. Select "New Dashboard" -> "Add Visualization"
+3. Click on "Configure a new data source" in the bottom right
+4. Search for "PostgreSQL" and click the option that comes up
+5. Enter the following details for the database connection setup:
+    - Host URL -> localhost
+    - Database Name -> sensor_readings (Subject to change)
+    - Username -> postgres
+    - Password -> LZ4850
+    - TLS/SSL Mode -> disable
+6. After pressing "Save & Test", you should see a green indicator popup
+7. This allows you to select that database as a data source for a dashboard
+
+Setting up a dashboard:
+1. Go to "Menu" -> "Dashboard" -> "New"
+2. Select "New Dashboard" -> "Add Visualization"
+3. Search for the particular data source to add
+4. Go in the "Query" tab bottom left and add whatever necessary queries you'll need
+    - If time based, make sure to select "Time Series" at the top right for the plot
+    - This will be under the "Visualization" tab
+5. Plot options can be edited under the "Panel Options" menu
+6. After finishing the plot, make sure to save it and the dashboard
+    - For first time creation, grafana doesn't trigger a warning that you haven't saved
+    - The save button is at top of page
+
