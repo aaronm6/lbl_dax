@@ -1,0 +1,9 @@
+Installation instructions: https://grafana.com/docs/grafana/latest/setup-grafana/installation/windows/
+
+To launch the grafana server:
+1. Open CMD
+2. Navigate to C:\Program Files\GrafanaLabs\grafana\bin
+3. Run the following command: "start grafana-server.exe"
+4. Launches the server on port 3000, should be able to access site on lenovo laptop through web browser: http://localhost:3000/
+
+[ADD MORE INSTRUCTIONS LATER REGARDING RUNNING AND SETTING UP DASHBOARDS]
