@@ -6,6 +6,11 @@ To launch the grafana server:
 3. Run the following command: "start grafana-server.exe"
 4. Launches the server on port 3000, should be able to access site on lenovo laptop through web browser: http://localhost:3000/
 
+Alternatively, you can also do the following to launch the server:
+1. In the launch bar, type "Services", and click on the relevant application
+2. In the window that pops up, search for the "Grafana" service
+3. You should be able to start the service after clicking on it and/or stop/pause/restart it
+
 In order to add a database to grafana:
 1. Go to "Menu" -> "Dashboard" -> "New"
 2. Select "New Dashboard" -> "Add Visualization"
