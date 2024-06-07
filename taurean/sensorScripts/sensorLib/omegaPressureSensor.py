@@ -14,7 +14,7 @@ class omegaPressureSensor:
         command = '*G110\r'
         self.socket.sendall(str.encode(command))
         pressure = self.socket.recv(1024).decode()
-        return pressure
+        return str((float(pressure)+0.01)*517.149326)
 
     def close(self):
         self.socket.close()

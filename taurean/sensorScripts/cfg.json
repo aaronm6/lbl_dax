@@ -1,6 +1,6 @@
 {
     "data_output_settings": {
-        "time_between_measurements": 10
+        "time_between_measurements": 5
     },
     "sensor_details": {
         "cryo_con": {
@@ -43,6 +43,10 @@
         "pfeiffer_pressure": {
             "table_name": "pfeiffer_pressure",
             "column_names": ["timestamp", "pressure_torr"]
+        },
+        "load_sensors" : {
+            "table_name": "load_sensors",
+            "column_names": ["timestamp", "load_sensor1_value", "load_sensor2_value"]
         }
     }
 }
