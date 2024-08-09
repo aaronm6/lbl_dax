@@ -5,25 +5,18 @@ class mfc:
     # Create sensor object and make connection to specified serial port
     # Always check if serial port is correct if usb was unplugged
     def __init__(self, serialPort):
-        # Communication constants (see Pfeiffer Manual for more details)
-        self.ETX = chr(3)    # \x03
-        self.CR = chr(13)    # \r
-        self.LF = chr(10)    # \n
-        self.ENQ = chr(5)    # \x05
-        self.ACK = chr(6)    # \x06
-        self.NAK = chr(21)   # \x15
-
         # Serial connection initialization
         try:
             self.serial = serial.Serial(serialPort)
+            self.serial.timeout = 1.0
         except:
             raise TimeoutError("Can't connect to mfc, check device connection and com port")
 
-    def getPfeifferPressure(self, channel):
-        command = "TESTING" + self.CR + self.LF
+    def getFlowRate(self):
+        command = "@@@254F?;FF"
+        print("TEST")
         self.serial.write(str.encode(command))
-        self.serial.readline()
-        self.serial.write(str.encode(self.ENQ))
+        print("test")
         res = self.serial.readline().decode()
         print(res)
         return res
@@ -31,5 +24,6 @@ class mfc:
     def close(self):
         self.serial.close()
 
-mfcConn = mfc("COM3")
-mfcConn.getPfeifferPressure("1")
+mfcConn = mfc("COM4")
+mfcConn.getFlowRate()
+mfcConn.close()

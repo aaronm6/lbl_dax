@@ -1,5 +1,6 @@
 import socket
-
+from datetime import datetime
+import time
 #TODO: Make error handling
 class cryoCon:
     # Create sensor object and make connection to specified host and port
@@ -31,22 +32,30 @@ class cryoCon:
         outputPower = self.socket.recv(1024).decode()
         return outputPower.replace("\r\n", "").replace(" ", ""). replace("%", "")
 
+    def setCryoConSetPoint(self, loop, temperature):
+        command = 'loop ' + loop + ':setpt ' + temperature + '\r\n'
+        self.socket.send(str.encode(command))
+        setPoint = self.socket.recv(1024).decode()
+        return setPoint
     def close(self):
         self.socket.close()
 # Old Test Loop Code
-# while True:
-#     try:
-#         s = connect(host, port)
-#         temp = getCurrentTemp("a", s)
-#         setPoint = getSetPoint("1", s)
-#         outputPower = getCurrentOutputPower("1", s)
-#         currentTime = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-#         print("Current Time: " + currentTime)
-#         print("Current Temp: %sK" % temp)
-#         print("Current Setpoint: %s" % setPoint)
-#         print("Current Output Power:%s" % outputPower)
-#         print("------------------------------------------")
-#         time.sleep(2)
-#     except KeyboardInterrupt:
-#         break
-# s.close()
+host = "192.168.1.5"
+port = "2000"
+while True:
+    try:
+        s = cryoCon(host, port)
+        temp = s.getCryoConTemp("a")
+        setPoint = s.getCryoConSetPoint("1")
+        outputPower = s.getCryoConOutputPower("1")
+        print(s.setCryoConSetPoint("1", "250"))
+        currentTime = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        print("Current Time: " + currentTime)
+        print("Current Temp: %sK" % temp)
+        print("Current Setpoint: %s" % setPoint)
+        print("Current Output Power:%s" % outputPower)
+        print("------------------------------------------")
+        time.sleep(2)
+    except KeyboardInterrupt:
+        break
+s.close()
