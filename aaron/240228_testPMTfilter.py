@@ -7,11 +7,13 @@ hostname = socket.gethostname().split('.')[0]
 if hostname in ['mfalcon', 'neb']:
     dirname = os.path.expanduser('~/data/HydroX/')
 elif hostname == 'ldax':
-    dirname = '/mnt/drive1/PMT_data/'
+    #dirname = '/mnt/drive1/PMT_data/'
+    dirname = '/mnt/drive1/SiPM_data/'
 
 if 'fName' not in locals():
-    fName = 'wave0_15ADC.dat'
+    #fName = 'wave0_15ADC.dat'
     #fName = 'wave0_10ADC.dat'
+    fName = 'sipmTest.dat'
 event_length = 520
 t_interval = 1e-8 # time, in seconds, between samples.  Might be 2e-9 seconds, need to check
 itemsize = dtype('int16').itemsize
@@ -48,11 +50,12 @@ if load_filt:
 rcParams.update({'font.size':10.})
 
 bnds_trigPulse = r_[165, 210]
-#bnds_off = r_[300,300+diff(bnds_trigPulse)]
-bnds_off = r_[110,110+diff(bnds_trigPulse)]
+bnds_off = r_[300,300+diff(bnds_trigPulse)]
+#bnds_off = r_[110,110+diff(bnds_trigPulse)]
 
 figure(51, figsize=(10.28,8.97)); clf()
-evt_offset = int(1e5) +17
+#evt_offset = int(1e5) +17
+evt_offset = 2
 for k in range(6):
     subplot(6,1,k+1)
     if k==0:
