@@ -1,3 +1,5 @@
 *.so
 __pycache__
 *.pyc
+*.png
+*.pdf
