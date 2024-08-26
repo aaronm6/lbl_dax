@@ -4,7 +4,7 @@
 #include <numpy/ndarrayobject.h>
 #include <numpy/npy_math.h>
 #include <math.h>
-// test commit
+
 /* ----------------- <AUX FUNCTIONS> ----------------- */
 npy_intp intp_max(npy_intp a, npy_intp b) {
 	if (a > b) {
@@ -160,6 +160,8 @@ void rowbyrow(void (*f)(PyObject *args), PyObject *nd_i, PyObject *nd_o, long ax
 	if (ndim == 1) {
 		PyTuple_SetItem(passargs, 0, nd_i);
 		PyTuple_SetItem(passargs, 1, nd_o);
+		Py_INCREF(nd_i);
+		Py_INCREF(nd_o);
 		f(passargs);
 		Py_DECREF(passargs);
 		Py_DECREF(nd_i);
@@ -389,11 +391,11 @@ PyDoc_STRVAR(
 	slice1d__doc__,
 	"slice1d(arr, idx, axis=1)\n--\n\n"
 	"Slice a 1-dimensional array from a 2d array.");
-
 PyDoc_STRVAR(
 	next_idx__doc__,
 	"next_idx(arr, axis=1)\n--\n\n"
 	"Take a 1d slice from a 2d array, and increment which row or column it came from.");
+
 static PyMethodDef ldax_methods[] = {
 	{"avebox", (PyCFunction)meth_avebox,METH_VARARGS|METH_KEYWORDS, avebox__doc__},
 	{"slice1d", (PyCFunction)meth_slice1d, METH_VARARGS|METH_KEYWORDS, slice1d__doc__},
