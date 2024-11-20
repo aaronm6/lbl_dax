@@ -39,16 +39,19 @@ class cryoCon:
         return setPoint
     def close(self):
         self.socket.close()
-# Old Test Loop Code
+""" # Old Test Loop Code
 host = "192.168.1.5"
 port = "2000"
+s = cryoCon(host, port)
+print(s.setCryoConSetPoint("1", "300"))
 while True:
     try:
-        s = cryoCon(host, port)
         temp = s.getCryoConTemp("a")
         setPoint = s.getCryoConSetPoint("1")
         outputPower = s.getCryoConOutputPower("1")
-        print(s.setCryoConSetPoint("1", "250"))
+        if outputPower == "0":
+            print("OFF")
+        #print(s.setCryoConSetPoint("1", "250"))
         currentTime = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
         print("Current Time: " + currentTime)
         print("Current Temp: %sK" % temp)
@@ -58,4 +61,4 @@ while True:
         time.sleep(2)
     except KeyboardInterrupt:
         break
-s.close()
+s.close() """

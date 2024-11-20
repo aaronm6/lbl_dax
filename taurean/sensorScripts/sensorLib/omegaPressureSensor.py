@@ -14,7 +14,11 @@ class omegaPressureSensor:
         command = '*G110\r'
         self.socket.sendall(str.encode(command))
         pressure = self.socket.recv(1024).decode()
-        return str((float(pressure)+0.01)*517.149326)
+        return str((float(pressure)+0.01)*517.149326) #converts from psi to torr
 
     def close(self):
         self.socket.close()
+
+# dev = omegaPressureSensor("192.168.1.200", 2000)
+# print(dev.getOmegaSensorPressure())
+# dev.close()

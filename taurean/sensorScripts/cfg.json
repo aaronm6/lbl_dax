@@ -4,24 +4,33 @@
     },
     "sensor_details": {
         "cryo_con": {
+            "enabled": "True",
             "ip_address": "192.168.1.5",
             "port": "2000",
-            "loops": ["a"],
+            "loops": ["a", "b"],
             "channels": ["1"]
         },
         "omega_pressure": {
+            "enabled": "True",
             "ip_address": "192.168.1.200",
             "port": "2000"
         },
         "pfeiffer_pressure": {
+            "enabled": "False",
             "serial_port": "COM3",
             "channels": ["1"]
         },
+        "mfc": {
+            "enabled": "True",
+            "serial_port": "/dev/ttyUSB0"
+        },
         "load_sensor_1" : {
+            "enabled": "True",
             "ip_address": "192.168.1.201",
             "port": "2000"
         },
         "load_sensor_2" : {
+            "enabled": "True",
             "ip_address": "192.168.1.202",
             "port": "2000"
         }
@@ -33,20 +42,24 @@
             "database": "sensor_readings"
         },
         "cryo_con": {
-            "table_name": "cryo_con_temperature",
-            "column_names": ["timestamp", "temperature_kelvin", "setpoint_kelvin", "output_power_percentage"]
+            "table_name": "cryo_con",
+            "column_names": ["timestamp", "temp_chana", "temp_chanb", "setpt_chana", "heater_enabled", "heater_output_power"]
         },
         "omega_pressure": {
             "table_name": "omega_pressure",
-            "column_names": ["timestamp", "pressure_torr"]
+            "column_names": ["timestamp", "pressure"]
         },
         "pfeiffer_pressure": {
             "table_name": "pfeiffer_pressure",
-            "column_names": ["timestamp", "pressure_torr"]
+            "column_names": ["timestamp", "pressure"]
         },
         "load_sensors" : {
-            "table_name": "load_sensors",
-            "column_names": ["timestamp", "load_sensor1_value", "load_sensor2_value"]
+            "table_name": "strain_gauge",
+            "column_names": ["timestamp", "bottle1_mass", "bottle2_mass"]
+        },
+        "mfc" : {
+            "table_name": "mfc",
+            "column_names": ["timestamp", "current_flow_rate", "total_volume", "total_mass"]
         }
     }
 }
