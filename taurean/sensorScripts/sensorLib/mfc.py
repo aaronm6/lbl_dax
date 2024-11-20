@@ -14,15 +14,12 @@ class mfc:
 
     def setMaxFlowRate(self, newRate):
         #AZ.02P1=500 flow rate change cmd
-        command = "AZ.02P1="+str(newRate)+"\r\n"
+        command = "AZ.02P1="+str(newRate)+"00\r\n"
         self.serial.write(str.encode(command))
-        print("test")
-        time.sleep(1)
         res = self.serial.readline()
-        print(res)
         while (res):
             res = self.serial.readline()
-            print(res)
+        return newRate
 
     def getFlowRate(self):
         command = "AZR\r\n"

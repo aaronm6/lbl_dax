@@ -28,8 +28,6 @@ def collectCryoCon(sensorDetails, cfgTableData, cursor):
     except socket.timeout:
         raise TimeoutError("Cryo Con couldn't be connected to, check connections and ip addresses and try again later")
 
-    print("Connection successful")
-
     # Get channel and loop details
     cryoConChannels = sensorDetails["cryo_con"]["channels"]
     cryoConLoops = sensorDetails["cryo_con"]["loops"]
@@ -63,6 +61,14 @@ def collectCryoCon(sensorDetails, cfgTableData, cursor):
     cursor.execute(makeInsertQuery(cryoConTable, cryoConColumns, cryoConVals))
 
     cryoConDev.close()
+
+def changeCryoConSetpt(sensorDetails, channel, temperature):
+    try:
+        cryoConDev = cryoCon.cryoCon(sensorDetails["cryo_con"]["ip_address"], sensorDetails["cryo_con"]["port"])
+    except socket.timeout:
+        raise TimeoutError("Cryo Con couldn't be connected to, check connections and ip addresses and try again later")
+    setpt = cryoConDev.setCryoConSetPoint(channel, temperature)
+    print("Temperature set point has been changed to " + str(temperature) + " for channel " + channel + ".")
 
 def collectOmegaPressure(sensorDetails, cfgTableData, cursor):
     try:
@@ -137,7 +143,14 @@ def collectMfc(sensorDetails, cfgTableData, cursor, startTime):
     cursor.execute(makeInsertQuery(mfcTable, mfcColumns, mfcVals))
     mfcDev.close()
 
+def changeFlowRate(sensorDetails, flowRate):
+    try:
+        mfcDev = mfc.mfc(sensorDetails["mfc"]["serial_port"])
+    except socket.timeout:
+        raise TimeoutError("Couldn't connect to pfeiffer pressure readout, check connections and serial port address and try again later")
 
+    mfcDev.setMaxFlowRate(flowRate)
+    print("Max flow rate has been changed to " + str(flowRate) + ".")
 
 def collectStrainGauge(sensorDetails, cfgTableData, cursor):
     try:
@@ -227,9 +240,8 @@ def main():
     # 1. Start monitoring
     # 2. Stop monitoring
     # 3. Change cryo con setpoint
-    # 4. Toggle heater
-    # 5. Change flow rate setpoint
-    # 6. Exit
+    # 4. Change flow rate setpoint
+    # 5. Exit
     bg_process = multiprocessing.Process(target=monitoringLoop)
 
     while True:
@@ -242,9 +254,8 @@ def main():
         print("1. Start monitoring")
         print("2. Stop montioring")
         print("3. Change cryo con setpoint")
-        print("4. Toggle Heater")
-        print("5. Change flow rate setpoint")
-        print("6. Exit")
+        print("4. Change flow rate setpoint")
+        print("5. Exit")
 
         choice = input("Enter your number choice: ")
 
@@ -262,9 +273,9 @@ def main():
             else:
                 print("Background task is not running.")
         elif choice == "3":
+            print("\nEnter the heater channel and new setpoint temperature in the following format (no quotations): \"heater_channel, temp\"")
+            print("i.e. \"1, 120\"")
             while True:
-                print("\nEnter the heater channel and new setpoint temperature in the following format (no quotations): \"heater_channel, temp\"")
-                print("i.e. \"a, 120\"")
                 newSetting = input("Please enter the new heater + setpoint temp or go back to the main menu by typing \"Back\":")
                 if newSetting.lower() == "back":
                     print("Going back to main menu.")
@@ -276,19 +287,39 @@ def main():
                         if len(values) == 2:
                             channel = values[0]
                             temp = values[1]
+                            if (channel != '1' and channel != '2'):
+                                print("Invalid input, please try again")
+                            else:
+                                try: 
+                                    float(temp)
+                                    with open("cfg.json") as json_data:
+                                        data = json.load(json_data)
+                                        sensorDetails = data["sensor_details"]
+                                        changeCryoConSetpt(sensorDetails, channel, temp)
+                                        break
+                                except ValueError:
+                                    print("Invalid input, please try again")
                         else:
                             print("Invalid input, please try again")
                     else:
                         print("Invalid input, please try again")
         elif choice == "4":
-            if bg_process.is_alive():
-                bg_process.terminate()
-            break
+            while True:
+                newFlowRate = input("\nEnter the flow rate you want in slpm:")
+                if newFlowRate.lower() == "back":
+                    print("Going back to main menu.")
+                    break
+                else:
+                    try:
+                        float(newFlowRate)
+                        with open("cfg.json") as json_data:
+                                data = json.load(json_data)
+                                sensorDetails = data["sensor_details"]
+                                changeFlowRate(sensorDetails, newFlowRate)
+                        break
+                    except ValueError:
+                        print("Invalid input, please try again")
         elif choice == "5":
-            if bg_process.is_alive():
-                bg_process.terminate()
-            break
-        elif choice == "6":
             if bg_process.is_alive():
                 bg_process.terminate()
             break

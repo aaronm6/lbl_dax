@@ -32,11 +32,13 @@ class cryoCon:
         outputPower = self.socket.recv(1024).decode()
         return outputPower.replace("\r\n", "").replace(" ", ""). replace("%", "")
 
+    # Change set point for a specific loop
     def setCryoConSetPoint(self, loop, temperature):
         command = 'loop ' + loop + ':setpt ' + temperature + '\r\n'
         self.socket.send(str.encode(command))
-        setPoint = self.socket.recv(1024).decode()
+        setPoint = self.socket.recv(4096).decode()
         return setPoint
+
     def close(self):
         self.socket.close()
 """ # Old Test Loop Code
