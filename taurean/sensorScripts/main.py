@@ -41,7 +41,7 @@ def collectCryoCon(sensorDetails, cfgTableData, cursor):
     cryoConVals.append(currentTime)
 
     #Get data
-    print(cryoConLoops)
+    #print(cryoConLoops)
     for loop in cryoConLoops:
         if (cryoConDev.getCryoConTemp(loop) == "......."):
             #print("One or more loop(s) are disconnected, check cryo con.")
@@ -57,7 +57,7 @@ def collectCryoCon(sensorDetails, cfgTableData, cursor):
         else:
             cryoConVals.append("True")
         cryoConVals.append(outputPower)
-    print(cryoConVals)
+    #print(cryoConVals)
     cursor.execute(makeInsertQuery(cryoConTable, cryoConColumns, cryoConVals))
 
     cryoConDev.close()
