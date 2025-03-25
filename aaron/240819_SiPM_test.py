@@ -1,5 +1,14 @@
 import c_ldax_proc as clp
 
+def get_filesize(path_and_filename):
+    """
+    Returns the size of the provided file, in number of bytes.
+    """
+    with open(path_and_filename) as ff:
+        ff.seek(0,2)
+        filesize_bytes = ff.tell()
+    return filesize_bytes
+
 dirname = '/mnt/drive1/SiPM_data'
 #fname = '8-19-2024_0228_ch0-sipm.dat'
 #fname = '8-19-2024_0301_ch0-sipm.dat'
@@ -10,12 +19,10 @@ itemsize = dtype('int16').itemsize
 n_baseline = 200
 
 if 'd_raw' not in locals():
+    filesize_bytes = get_filesize(f'{dirname}/{fname}')
+    num_events = int(filesize_bytes / itemsize / event_length)
+    d_raw = empty((num_events, event_length))
     with open(f'{dirname}/{fname}', 'rb') as ff:
-        ff.seek(0,2)
-        filesize_bytes = ff.tell()
-        ff.seek(0,0)
-        num_events = int(filesize_bytes / itemsize / event_length)
-        d_raw = empty((num_events, event_length))
         d_raw.ravel()[:] = fromfile(ff, dtype=int16)[:]
         bs_ave = d_raw[:,:n_baseline].mean(axis=1)
         d_raw -= tile(c_[bs_ave],(1,event_length))

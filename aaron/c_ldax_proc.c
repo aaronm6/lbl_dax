@@ -20,6 +20,13 @@ npy_intp intp_min(npy_intp a, npy_intp b) {
 }
 
 PyArrayObject *slice_1d(PyObject *array, long idx, long axis) {
+	// This aux function takes a 2d array and produces a new view to its data
+	// which is a slice along the specified axis.  The slice object can be 
+	// incremented with the function `next_idx`.  For example, if a slice is
+	// created along axis=1, it will look like a 1d array that is the first row
+	// of the parent 2d array.  Applying next_idx will mean that the same slice
+	// object will then represent the second row.
+	//
 	// axis=0 means: slice off a column
 	// axis=1 means: slice off a row
 	PyArrayObject *n_array;
@@ -27,7 +34,8 @@ PyArrayObject *slice_1d(PyObject *array, long idx, long axis) {
 	npy_intp *dims_i = PyArray_DIMS(array);
 	npy_intp *strides_i = PyArray_STRIDES(array);
 	
-	npy_intp ndim_s = 1;
+	//npy_intp ndim_s = 1;
+	npy_intp ndim_s = intp_max(ndim_i - 1,1);
 	npy_intp dims_s[] = {dims_i[axis]};
 	npy_intp strides_s[] = {strides_i[axis]};
 	
@@ -81,6 +89,7 @@ void next_idx(PyArrayObject *sl_r, long axis) {
 }
 
 void avebox_row(PyObject *args) {
+	// This is a filter function that works on a 1d array.
 	PyObject *nd_s, *nd_f;
 	//printf("\t\t\taveboxrow ---start--- Py_REFCNT(args[0]) = %li\n", Py_REFCNT(PyTuple_GetItem(args, 0)));
 	long n;
@@ -143,6 +152,12 @@ void avebox_row(PyObject *args) {
 }
 
 void rowbyrow(void (*f)(PyObject *args), PyObject *nd_i, PyObject *nd_o, long axis, PyObject *optargs) {
+	// rowbyrow takes in a 1d or 2d array and passes it to a processing function specified by
+	// input 'f', which itself takes in only a 1d array.  If rowbyrow is given a 2d array, it 
+	// will feed individual rows (axis=1) or columns (axis=0) to 'f' and return a 2d array of
+	// the same size as the input.  This way, the processing function 'f' only has to worry about
+	// working on a 1d array, and does not have to worry about navigating multiple dimensions.
+	// 
 	// This function needs to take in the input array (1 or 2d) AND the output array.
 	// Also it needs the axis, to know which axis to break off 1d slices (row, by
 	// default, i.e. axis=1).  For avebox, n (box size) would go in optargs (a tuple)
