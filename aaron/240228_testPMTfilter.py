@@ -7,13 +7,13 @@ hostname = socket.gethostname().split('.')[0]
 if hostname in ['mfalcon', 'neb']:
     dirname = os.path.expanduser('~/data/HydroX/')
 elif hostname == 'ldax':
-    #dirname = '/mnt/drive1/PMT_data/'
-    dirname = '/mnt/drive1/SiPM_data/'
+    dirname = '/mnt/drive1/PMT_data/'
+    #dirname = '/mnt/drive1/SiPM_data/'
 
 if 'fName' not in locals():
-    #fName = 'wave0_15ADC.dat'
+    fName = 'wave0_15ADC.dat'
     #fName = 'wave0_10ADC.dat'
-    fName = 'sipmTest.dat'
+    #fName = 'sipmTest.dat'
 event_length = 520
 t_interval = 1e-8 # time, in seconds, between samples.  Might be 2e-9 seconds, need to check
 itemsize = dtype('int16').itemsize

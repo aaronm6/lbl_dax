@@ -12,7 +12,8 @@ def get_filesize(path_and_filename):
 dirname = '/mnt/drive1/SiPM_data'
 #fname = '8-19-2024_0228_ch0-sipm.dat'
 #fname = '8-19-2024_0301_ch0-sipm.dat'
-fname = '8-19-2024_0533_ch0-sipm.dat'
+#fname = '8-19-2024_0533_ch0-sipm.dat'
+fname = '8-26-2024_1157_ch0_sipm_darkcountsonly_25ADC.dat'
 event_length = 1030
 t_interval = 1e-8
 itemsize = dtype('int16').itemsize
