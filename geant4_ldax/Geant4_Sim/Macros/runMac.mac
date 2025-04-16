@@ -1,0 +1,141 @@
+## ----------------------- ##
+##      GENERIC Macro      ##
+## ----------------------- ##
+
+## ------------------------ ##
+##       RUN CONTROL        ##
+## ------------------------ ##
+/run/verbose       0
+/control/verbose   0
+/tracking/verbose  0
+
+## Turns on Atomic Deexcitation
+/process/em/fluo true
+/process/em/auger true
+/process/em/augerCascade true
+/process/em/pixe true
+/process/em/deexcitationIgnoreCut true 
+
+#/cuts/setLowEdge 10 eV
+#/run/setCut 1 um
+
+#set the random seeds
+/random/setSeeds 420 69
+
+## ------------------------ ##
+##     SET DET PARAMS       ##
+## ------------------------ ##
+
+## What geometry setup to use 
+## Options:  HydroX
+/mydet/WhichGeometry HydroX
+
+## Set dopant material: H2, He or None
+/mydet/WhichDopant He
+
+## Set dopant fraciton by mass
+/mydet/DopantFraction 0.5
+
+## ------------------------ ##
+##   INITIALIZE DETECTOR    ##
+## ALLOWS FOR MACRO EDITING ##
+##      OF DET PARAMS       ##
+## ------------------------ ##   
+
+## Must be set before defining generator
+/run/initialize
+
+## Check for overlapping geometries
+## must be after initialize
+/geometry/test/run
+
+## ------------------------ ##
+##      VISUALIZATION       ##
+## ------------------------ ##
+
+## Create file per group of components
+## viewable with paraview
+
+#/vis/open VRML2FILE
+#/vis/drawVolume TPC
+
+#/vis/viewer/flush
+#/vis/drawVolume PTFE
+
+#/vis/viewer/flush
+#/vis/drawVolume ICV
+
+#/vis/viewer/flush
+#/vis/drawVolume OCV
+
+#/vis/viewer/flush
+#/vis/drawVolume LiqScintDet0deg
+
+#/vis/viewer/flush
+#/vis/drawVolume LiqScintDet15deg
+
+#/vis/viewer/flush
+#/vis/drawVolume LiqScintDet30deg
+
+#/vis/viewer/flush
+#/vis/drawVolume LiqScintDet45deg
+
+#/vis/viewer/flush
+#/vis/drawVolume LiqScintDet60deg
+
+#/vis/viewer/flush
+#/vis/drawVolume LiqScintDet75deg
+
+#/vis/viewer/flush
+#/vis/drawVolume LiqScintDet90deg
+
+#/vis/viewer/flush
+#/vis/drawVolume LiqScintDet105deg
+
+#/vis/viewer/flush
+#/vis/drawVolume LiqScintDet120deg
+
+#/vis/viewer/flush
+#/vis/drawVolume LiqScintDet135deg
+
+#/vis/viewer/flush
+#/vis/drawVolume LiqScintDet150deg
+
+#/vis/viewer/flush
+#/vis/drawVolume LiqScintDet165deg
+
+
+## ------------------------ ##
+##    SET THE GENERATOR     ##
+## ------------------------ ##
+
+## Uncomment the generator comment you wish to use
+
+## example single mono-energetic particle
+#/myapp/generator Particle neutron 100. keV
+
+## Flat neutron spectrum
+/myapp/generator Spectrum neutron ../Spectra/UniformNeutronSpectra.txt
+
+
+## ------------------------ ##
+##     SET THE POSITION     ##
+## ------------------------ ##
+
+## default position is origin 
+
+## to start from a single point
+/myapp/setParticlePosition Point -25. 0. 0. cm
+
+## to set the angle emitted at phi, theta, random
+/myapp/setParticleAngles 0. 90. 0. # +X-dir
+
+## ------------------------ ##
+##   N EVENTS TO SIMULATE   ##
+## ------------------------ ##    
+
+## print progress after N events
+/run/printProgress 10000
+
+## nEvents to simulate
+/run/beamOn 500000
