@@ -503,8 +503,12 @@ static PyObject *meth_find_peaks(PyObject *self, PyObject *args, PyObject *kwarg
 	
 	// perform some print testing on nd_o, particularly pulse times in samples
 	npy_float64 *el_test;
-	el_test = (npy_float64 *)PyArray_GETPTR2((PyArrayObject *)nd_o, 0, 2);
-	printf("The element is: %f\n", *el_test);
+	//el_test = (npy_float64 *)PyArray_GETPTR2((PyArrayObject *)nd_o, 0, 2);
+	//printf("The element is: %f\n", *el_test);
+	for (npy_intp i=0; i<10; i++) {
+		el_test = (npy_float64 *)PyArray_GETPTR2((PyArrayObject *)nd_o, 0, i);
+		printf("El %i: %f\n",i, *el_test);
+	}
 	fflush(stdout);
 	
 	/* Now parse this large 2d array into a dict with labels
