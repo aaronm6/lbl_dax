@@ -49,13 +49,12 @@ def is_gzipped(fName):
     Checks if file given by fName is a gzipped file
     Returns True if it is, False if it ain't
     """
-    gzip_status = True
     with gzip.open(fName, 'r') as fh:
         try:
             fh.read(1)
         except gzip.BadGzipFile:
-            gzip_status = False
-    return gzip_status
+            return False
+    return True
 
 def Read_DDC10_fHandle(fp):
     freader = gz_fromfile if isinstance(fp, gzip.GzipFile) else np.fromfile
