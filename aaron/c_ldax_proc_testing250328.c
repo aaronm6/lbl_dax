@@ -187,8 +187,10 @@ void integrate_twice_row(PyObject *args) { //ASSUMING ROW IS AT LEAST 100 ELEMEN
 	// Not sure if I need to decref anything else... probably not because the npy_float64s are
 	// not PyObjects
 }
-
+int n_eval = 0;
+int n_evt = -1;
 void find_peaks_row(PyObject *args) {
+	n_evt += 1;
 	PyObject *nd_i, *nd_o;
 	double p_thresh;
 	long n;
@@ -241,7 +243,13 @@ void find_peaks_row(PyObject *args) {
 				max_el = i;
 			}
 		}
-		
+		if (n_eval == 0) {
+			printf("ATCALC: max_val = %f; max_el = %li\n", max_val, max_el);
+			fflush(stdout);
+		}
+		if (n_eval < 5) {
+			n_eval += 1;
+		}
 		// go to pulse max, step to left to 50%
 		ii = max_el;
 		el_i = (npy_float64 *)PyArray_GETPTR1(nd_i,ii);
@@ -322,14 +330,22 @@ void find_peaks_row(PyObject *args) {
 		*el_o = pulse_area;
 		el_o = (npy_float64 *)PyArray_GETPTR1(nd_o, 1+pk);
 		*el_o = max_val;
-		el_o = (npy_float64 *)PyArray_GETPTR1(nd_o, 2+pk);
-		/*
-		if (pk==0) {
-			printf("idx_0hl = %li\n", idx_0hl);
-			printf("(npy_float64)idx_0hl = %f\n", (npy_float64)idx_0hl);
+		if (n_eval <= 1) {
+			printf("at data-setting stage: max_val = %f  (pk=%li)\n", max_val, pk);
+			printf("   and *el_o = %f\n", *el_o);
+			npy_float64 *el_oo;
+			el_oo = (npy_float64 *)PyArray_GETPTR1(nd_o, 1);
+			printf("   and reaccessing the element: *eloo = %f\n", *el_oo);
 			fflush(stdout);
-		} */
+		}
+		el_o = (npy_float64 *)PyArray_GETPTR1(nd_o, 2+pk);
 		*el_o = (npy_float64)idx_0hl;
+		if (n_eval <= 1) {
+			npy_float64 *el_later;
+			el_later = (npy_float64 *)PyArray_GETPTR1(nd_o,1);
+			printf("   and reaccessing after next: *el_later = %f\n", *el_later);
+			fflush(stdout);
+		}
 		el_o = (npy_float64 *)PyArray_GETPTR1(nd_o, 3+pk);
 		*el_o = (npy_float64)idx_50hl;
 		el_o = (npy_float64 *)PyArray_GETPTR1(nd_o, 4+pk);
@@ -344,6 +360,25 @@ void find_peaks_row(PyObject *args) {
 		*el_o = (npy_float64)idx_50a;
 		el_o = (npy_float64 *)PyArray_GETPTR1(nd_o, 9+pk);
 		*el_o = (npy_float64)idx_75a;
+		if (n_eval <= 1) {
+			npy_float64 *el_last;
+			el_last = (npy_float64 *)PyArray_GETPTR1(nd_o,1);
+			printf("   and reaccessing last: *el_last = %f\n", *el_last);
+			fflush(stdout);
+		}
+		if (n_evt == 0) {
+			npy_float64 *el_row;
+			el_row = (npy_float64 *)PyArray_GETPTR1(nd_o,1);
+			printf("   and access with (pk=%li): *el_row = %f\n", pk, *el_row);
+			fflush(stdout);
+		}
+	}
+	if (n_eval <= 2) {
+		npy_float64 *el_ps;
+		el_ps = PyArray_GETPTR1(nd_o, 1);
+		printf("****From row, post set: max_val = %f\n", *el_ps);
+		printf("****from row, just to check: n_el_o = %li\n", n_el_o);
+		fflush(stdout);
 	}
 	// HERE HERE HERE: need to edit the opening function (find_peaks) to produce this 10*n wide out array
 	// also would be good to pass the individual columns to named dict keys, and return the dict to the user
@@ -391,8 +426,20 @@ void rowbyrow_optargs(void (*f)(PyObject *args), PyObject *nd_i, PyObject *nd_o,
 		PyTuple_SetItem(passargs, 1, (PyObject *)sl_o);
 		for (npy_intp i=0; i<dims[1-axis]; i++) {
 			f(passargs);
+			if ((i==0)&&(n_eval > 0)) {
+				npy_float64 *el_r;
+				el_r = PyArray_GETPTR1(sl_o,1);
+				printf("FROM SLICE0: max_val = %f\n", *el_r);
+				fflush(stdout);
+			}
 			next_idx(sl_i, axis);
 			next_idx(sl_o, axis);
+		}
+		if (n_eval > 0) {
+			npy_float64 *el_t;
+			el_t = PyArray_GETPTR2(nd_o, 0, 1);
+			printf("FROM RbR: max_val = %f\n", *el_t);
+			fflush(stdout);
 		}
 		//Py_DECREF(sl_i);
 		//Py_DECREF(sl_o);
@@ -499,12 +546,26 @@ static PyObject *meth_find_peaks(PyObject *self, PyObject *args, PyObject *kwarg
 	rowbyrow_optargs(find_peaks_row, (PyObject *)nd_i, nd_o, axis, optargs);
 	Py_DECREF(nd_i);
 	Py_DECREF(optargs);
-	//return nd_o;
-	printf("testing adding lines: 1");
-	printf("2");
-	printf("3\n\n");
-	// perform some print testing on nd_o, particularly pulse times in samples
+	
 	npy_float64 *el_test;
+	el_test = (npy_float64 *)PyArray_GETPTR2(nd_o, 0, 1);
+	printf("max_val from wrapper func: %f\n", *el_test);
+	fflush(stdout);
+	//return nd_o;
+	// perform some print testing on nd_o, particularly pulse times in samples
+	/*
+	npy_float64 *el_test;
+	printf("Input first elements:\n");
+	npy_float64 max_val = -100000.;
+	for (npy_intp i=0; i<1100; i++) {
+		el_test = (npy_float64 *)PyArray_GETPTR2(nd_i, 0, i);
+		if (*el_test > max_val) max_val = *el_test;
+		if (i<10) {
+			printf("%f;  ", *el_test);
+		}
+	}
+	printf("\n");
+	printf("max_val for 0th row: %f\n", max_val);
 	//el_test = (npy_float64 *)PyArray_GETPTR2((PyArrayObject *)nd_o, 0, 2);
 	//printf("The element is: %f\n", *el_test);
 	for (npy_intp i=0; i<10; i++) {
@@ -512,7 +573,7 @@ static PyObject *meth_find_peaks(PyObject *self, PyObject *args, PyObject *kwarg
 		printf("El %li: %f\n",i, *el_test);
 	}
 	fflush(stdout);
-	
+	*/
 	/* Now parse this large 2d array into a dict with labels
 	   The output array has 10*n columns.  Each 10 columns corresponds to the RQs
 	   for one found pulse.  For example, if n=2, then:
