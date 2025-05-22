@@ -500,7 +500,9 @@ static PyObject *meth_find_peaks(PyObject *self, PyObject *args, PyObject *kwarg
 	Py_DECREF(nd_i);
 	Py_DECREF(optargs);
 	//return nd_o;
-	
+	printf("testing adding lines: 1");
+	printf("2");
+	printf("3\n\n");
 	// perform some print testing on nd_o, particularly pulse times in samples
 	npy_float64 *el_test;
 	//el_test = (npy_float64 *)PyArray_GETPTR2((PyArrayObject *)nd_o, 0, 2);
