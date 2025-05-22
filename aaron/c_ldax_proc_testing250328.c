@@ -507,7 +507,7 @@ static PyObject *meth_find_peaks(PyObject *self, PyObject *args, PyObject *kwarg
 	//printf("The element is: %f\n", *el_test);
 	for (npy_intp i=0; i<10; i++) {
 		el_test = (npy_float64 *)PyArray_GETPTR2((PyArrayObject *)nd_o, 0, i);
-		printf("El %i: %f\n",i, *el_test);
+		printf("El %li: %f\n",i, *el_test);
 	}
 	fflush(stdout);
 	
