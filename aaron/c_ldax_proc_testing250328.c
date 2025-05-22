@@ -323,11 +323,12 @@ void find_peaks_row(PyObject *args) {
 		el_o = (npy_float64 *)PyArray_GETPTR1(nd_o, 1+pk);
 		*el_o = max_val;
 		el_o = (npy_float64 *)PyArray_GETPTR1(nd_o, 2+pk);
+		/*
 		if (pk==0) {
 			printf("idx_0hl = %li\n", idx_0hl);
 			printf("(npy_float64)idx_0hl = %f\n", (npy_float64)idx_0hl);
 			fflush(stdout);
-		}
+		} */
 		*el_o = (npy_float64)idx_0hl;
 		el_o = (npy_float64 *)PyArray_GETPTR1(nd_o, 3+pk);
 		*el_o = (npy_float64)idx_50hl;
@@ -500,6 +501,12 @@ static PyObject *meth_find_peaks(PyObject *self, PyObject *args, PyObject *kwarg
 	Py_DECREF(optargs);
 	//return nd_o;
 	
+	// perform some print testing on nd_o, particularly pulse times in samples
+	npy_float64 *el_test;
+	el_test = (npy_float64 *)PyArray_GETPTR2((PyArrayObject *)nd_o, 0, 2);
+	printf("The element is: %f\n", *el_test);
+	fflush(stdout);
+	
 	/* Now parse this large 2d array into a dict with labels
 	   The output array has 10*n columns.  Each 10 columns corresponds to the RQs
 	   for one found pulse.  For example, if n=2, then:
@@ -536,6 +543,7 @@ static PyObject *meth_find_peaks(PyObject *self, PyObject *args, PyObject *kwarg
 		RQ_array = PyArray_Transpose((PyArrayObject *)PyObject_GetItem(nd_o, slice_tuple), NULL);
 		r = PyDict_SetItemString(RQ_dict, keys[k], PyArray_Squeeze((PyArrayObject *)RQ_array));
 	}
+	
 	
 	//Py_DECREF(nd_i); // <-- over decrefs the input
 	Py_DECREF(RQ_array);
