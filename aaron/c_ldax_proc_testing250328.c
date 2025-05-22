@@ -323,6 +323,11 @@ void find_peaks_row(PyObject *args) {
 		el_o = (npy_float64 *)PyArray_GETPTR1(nd_o, 1+pk);
 		*el_o = max_val;
 		el_o = (npy_float64 *)PyArray_GETPTR1(nd_o, 2+pk);
+		if (pk==0) {
+			printf("idx_0hl = %li\n", idx_0hl);
+			printf("(npy_float64)idx_0hl = %f\n", (npy_float64)idx_0hl);
+			fflush(stdout);
+		}
 		*el_o = (npy_float64)idx_0hl;
 		el_o = (npy_float64 *)PyArray_GETPTR1(nd_o, 3+pk);
 		*el_o = (npy_float64)idx_50hl;
