@@ -40,7 +40,6 @@ PyArrayObject *slice_1d(PyObject *array, long idx, long axis) {
 	int ndim_i = PyArray_NDIM(array);
 	npy_intp *dims_i = PyArray_DIMS(array);
 	npy_intp *strides_i = PyArray_STRIDES(array);
-	
 	//npy_intp ndim_s = 1;
 	npy_intp ndim_s = intp_max(ndim_i - 1,1);
 	npy_intp dims_s[] = {dims_i[axis]};
@@ -93,6 +92,35 @@ void next_idx(PyArrayObject *sl_r, long axis) {
 		strides_base[1-axis];
 	npy_intp next_slice = (current_slice + 1) % dims_base[1-axis]; // wrap around if at the end.
 	sl_r->data = base_data + next_slice * strides_base[1-axis];
+}
+
+void exp_filt_row(PyObject *args) {
+	PyObject *nd_s, *nd_f;
+	double t0; // the decay constant of the exp filter, in units of samples
+	if (!PyArg_ParseTuple(args, "O&O&d",
+		PyArray_Converter, &nd_s,
+		PyArray_Converter, &nd_f,
+		&t0)) {
+		PyErr_SetString(PyExc_ValueError, "Something wrong with inputs unpacking");
+	}
+	npy_intp numel = PyArray_SIZE(nd_s);
+	npy_intp numelf = PyArray_SIZE(nd_f);
+	if (numel != numelf) {
+		PyErr_SetString(PyExc_IndexError, "Input and output rows must have the same length");
+	}
+	npy_float64 *s_el, *f_el, *f_el_last;
+	s_el = (npy_float64 *)PyArray_GETPTR1(nd_s,0);
+	f_el = (npy_float64 *)PyArray_GETPTR1(nd_f,0);
+	*f_el = *s_el;
+	npy_float64 exp_neg1 = exp(-1./t0);
+	for (npy_intp k=1; k<numel; k++) {
+		s_el = (npy_float64 *)PyArray_GETPTR1(nd_s,k);
+		f_el = (npy_float64 *)PyArray_GETPTR1(nd_f,k);
+		f_el_last = (npy_float64 *)PyArray_GETPTR1(nd_f, k-1);
+		*f_el = (*s_el)/t0 + exp_neg1*(*f_el_last);
+	}
+	Py_DECREF(nd_s);
+	Py_DECREF(nd_f);
 }
 
 void avebox_row(PyObject *args) {
@@ -153,44 +181,8 @@ void avebox_row(PyObject *args) {
 	}
 	Py_DECREF(nd_s);
 	Py_DECREF(nd_f);
-	//printf("\t\t\taveboxrow ---end--- Py_REFCNT(args[0]) = %li\n", Py_REFCNT(PyTuple_GetItem(args, 0)));
-	//fflush(stdout);
 }
-
-void integrate_twice_row(PyObject *args) { //ASSUMING ROW IS AT LEAST 100 ELEMENTS LONG
-	PyObject *nd_i, *nd_o;
-	if (!PyArg_ParseTuple(args, "O&O&",
-		PyArray_Converter, &nd_i,
-		PyArray_Converter, &nd_o)) {
-		PyErr_SetString(PyExc_ValueError, "Something went wrong with input unpacking");
-	}
-	npy_float64 *el_i, *el_o;
-	npy_float64 sum_1 = 0.;
-	npy_float64 sum_2 = 0.;
-	
-	// going to add elements 10->15 (sum_1) and elements 50->57 (sum_2)
-	for (npy_intp i=10; i<16; i++) {
-		el_i = (npy_float64 *)PyArray_GETPTR1(nd_i, i);
-		sum_1 += *el_i;
-	}
-	for (npy_intp i=50; i<58; i++) {
-		el_i = (npy_float64 *)PyArray_GETPTR1(nd_i, i);
-		sum_2 += *el_i;
-	}
-	el_o = (npy_float64 *)PyArray_GETPTR1(nd_o, 0);
-	*el_o = sum_1;
-	el_o = (npy_float64 *)PyArray_GETPTR1(nd_o, 1);
-	*el_o = sum_2;
-	
-	Py_DECREF(nd_i);
-	Py_DECREF(nd_o);
-	// Not sure if I need to decref anything else... probably not because the npy_float64s are
-	// not PyObjects
-}
-int n_eval = 0;
-int n_evt = -1;
 void find_peaks_row(PyObject *args) {
-	n_evt += 1;
 	PyObject *nd_i, *nd_o;
 	double p_thresh;
 	long n;
@@ -218,12 +210,13 @@ void find_peaks_row(PyObject *args) {
 	// replaces the zero with a -10000.  Then any iteration actually looks at sig[i] + excl[i]
 	// where 'sig[0]' is the pulse trace and excl[i] is this extra array.
 	npy_float64 *el_i, *el_o;
-	npy_float64 max_val, pulse_area, prt_sum; // max_val is pulse height
+	npy_float64 max_val, min_val, pulse_area, prt_sum; // max_val is pulse height
 	npy_intp idx_0hl, idx_50hl, max_el, idx_50hr, idx_0hr; // height fraction times
 	npy_intp idx_25a, idx_50a, idx_75a; // area fraction times
 	npy_intp ii;
 	npy_intp n_el_i = PyArray_SIZE(nd_i);
 	npy_intp n_el_o = PyArray_SIZE(nd_o);
+	npy_intp num_rqs = n_el_o / n;
 	
 	// create and initialize exclusion array
 	npy_float64 excl_arr[n_el_i];
@@ -232,7 +225,10 @@ void find_peaks_row(PyObject *args) {
 	}
 	// Need to initialize the other RQs and move to the top, and clean up top-code initializations
 	for (npy_intp pk=0; pk<n; pk++) {
+		// max_val will hold the maximum value in the event (excluding already-found pulses)
 		max_val = -100000.;
+		// min_val will hold the minimum value IN THE PULSE (not in the whole window)
+		min_val = 100000000.;
 		max_el = 0;
 		pulse_area = 0.;
 		prt_sum = 0.;
@@ -242,13 +238,6 @@ void find_peaks_row(PyObject *args) {
 				max_val = *el_i;
 				max_el = i;
 			}
-		}
-		if (n_eval == 0) {
-			printf("ATCALC: max_val = %f; max_el = %li\n", max_val, max_el);
-			fflush(stdout);
-		}
-		if (n_eval < 5) {
-			n_eval += 1;
 		}
 		// go to pulse max, step to left to 50%
 		ii = max_el;
@@ -288,27 +277,30 @@ void find_peaks_row(PyObject *args) {
 		for (ii=idx_0hl; ii<=idx_0hr; ii++) {
 			el_i = (npy_float64 *)PyArray_GETPTR1(nd_i, ii);
 			pulse_area += *el_i;
+			if (*el_i < min_val) {
+				min_val = *el_i;
+			}
 		}
 		// go back to start of pulse and integrate again to get area fraction times
 		ii = idx_0hl;
 		el_i = (npy_float64 *)PyArray_GETPTR1(nd_i, ii);
 		prt_sum = *el_i;
 		// integrate to 25% of pulse area
-		while (prt_sum<0.25*pulse_area) {
+		while ((prt_sum<0.25*pulse_area)&&(ii<=idx_0hr)) {
 			ii++;
 			el_i = (npy_float64 *)PyArray_GETPTR1(nd_i, ii);
 			prt_sum += *el_i;
 		}
 		idx_25a = ii - 1;
 		// continue on to 50% area
-		while (prt_sum<0.5*pulse_area) {
+		while ((prt_sum<0.5*pulse_area)&&(ii<=idx_0hr)) {
 			ii++;
 			el_i = (npy_float64 *)PyArray_GETPTR1(nd_i, ii);
 			prt_sum += *el_i;
 		}
 		idx_50a = ii - 1;
 		// continue on to 75%
-		while (prt_sum<0.75*pulse_area) {
+		while ((prt_sum<0.75*pulse_area)&&(ii<=idx_0hr)) {
 			ii++;
 			el_i = (npy_float64 *)PyArray_GETPTR1(nd_i, ii);
 			prt_sum += *el_i;
@@ -324,64 +316,31 @@ void find_peaks_row(PyObject *args) {
 		// now we will fill the output array... realizing that we'll have to cast all
 		// the ints to floats
 		// the order will be:
-		//      0          1        2        3        4        5         6        7        8        9
-		//	pulse_area, max_val, idx_0hl, idx_50hl, max_el, idx_50hr, idx_0hr, idx_25a, idx_50a, idx_75a
-		el_o = (npy_float64 *)PyArray_GETPTR1(nd_o, 0+pk);
+		//      0          1        2        3        4        5         6        7        8        9       10
+		//	pulse_area, max_val, min_val, idx_0hl, idx_50hl, max_el, idx_50hr, idx_0hr, idx_25a, idx_50a, idx_75a
+		el_o = (npy_float64 *)PyArray_GETPTR1(nd_o, 0+pk*num_rqs);
 		*el_o = pulse_area;
-		el_o = (npy_float64 *)PyArray_GETPTR1(nd_o, 1+pk);
+		el_o = (npy_float64 *)PyArray_GETPTR1(nd_o, 1+pk*num_rqs);
 		*el_o = max_val;
-		if (n_eval <= 1) {
-			printf("at data-setting stage: max_val = %f  (pk=%li)\n", max_val, pk);
-			printf("   and *el_o = %f\n", *el_o);
-			npy_float64 *el_oo;
-			el_oo = (npy_float64 *)PyArray_GETPTR1(nd_o, 1);
-			printf("   and reaccessing the element: *eloo = %f\n", *el_oo);
-			fflush(stdout);
-		}
-		el_o = (npy_float64 *)PyArray_GETPTR1(nd_o, 2+pk);
+		el_o = (npy_float64 *)PyArray_GETPTR1(nd_o, 2+pk*num_rqs);
+		*el_o = min_val;
+		el_o = (npy_float64 *)PyArray_GETPTR1(nd_o, 3+pk*num_rqs);
 		*el_o = (npy_float64)idx_0hl;
-		if (n_eval <= 1) {
-			npy_float64 *el_later;
-			el_later = (npy_float64 *)PyArray_GETPTR1(nd_o,1);
-			printf("   and reaccessing after next: *el_later = %f\n", *el_later);
-			fflush(stdout);
-		}
-		el_o = (npy_float64 *)PyArray_GETPTR1(nd_o, 3+pk);
+		el_o = (npy_float64 *)PyArray_GETPTR1(nd_o, 4+pk*num_rqs);
 		*el_o = (npy_float64)idx_50hl;
-		el_o = (npy_float64 *)PyArray_GETPTR1(nd_o, 4+pk);
+		el_o = (npy_float64 *)PyArray_GETPTR1(nd_o, 5+pk*num_rqs);
 		*el_o = (npy_float64)max_el;
-		el_o = (npy_float64 *)PyArray_GETPTR1(nd_o, 5+pk);
+		el_o = (npy_float64 *)PyArray_GETPTR1(nd_o, 6+pk*num_rqs);
 		*el_o = (npy_float64)idx_50hr;
-		el_o = (npy_float64 *)PyArray_GETPTR1(nd_o, 6+pk);
+		el_o = (npy_float64 *)PyArray_GETPTR1(nd_o, 7+pk*num_rqs);
 		*el_o = (npy_float64)idx_0hr;
-		el_o = (npy_float64 *)PyArray_GETPTR1(nd_o, 7+pk);
+		el_o = (npy_float64 *)PyArray_GETPTR1(nd_o, 8+pk*num_rqs);
 		*el_o = (npy_float64)idx_25a;
-		el_o = (npy_float64 *)PyArray_GETPTR1(nd_o, 8+pk);
+		el_o = (npy_float64 *)PyArray_GETPTR1(nd_o, 9+pk*num_rqs);
 		*el_o = (npy_float64)idx_50a;
-		el_o = (npy_float64 *)PyArray_GETPTR1(nd_o, 9+pk);
+		el_o = (npy_float64 *)PyArray_GETPTR1(nd_o, 10+pk*num_rqs);
 		*el_o = (npy_float64)idx_75a;
-		if (n_eval <= 1) {
-			npy_float64 *el_last;
-			el_last = (npy_float64 *)PyArray_GETPTR1(nd_o,1);
-			printf("   and reaccessing last: *el_last = %f\n", *el_last);
-			fflush(stdout);
-		}
-		if (n_evt == 0) {
-			npy_float64 *el_row;
-			el_row = (npy_float64 *)PyArray_GETPTR1(nd_o,1);
-			printf("   and access with (pk=%li): *el_row = %f\n", pk, *el_row);
-			fflush(stdout);
-		}
 	}
-	if (n_eval <= 2) {
-		npy_float64 *el_ps;
-		el_ps = PyArray_GETPTR1(nd_o, 1);
-		printf("****From row, post set: max_val = %f\n", *el_ps);
-		printf("****from row, just to check: n_el_o = %li\n", n_el_o);
-		fflush(stdout);
-	}
-	// HERE HERE HERE: need to edit the opening function (find_peaks) to produce this 10*n wide out array
-	// also would be good to pass the individual columns to named dict keys, and return the dict to the user
 	Py_DECREF(nd_i);
 	Py_DECREF(nd_o);
 }
@@ -426,20 +385,8 @@ void rowbyrow_optargs(void (*f)(PyObject *args), PyObject *nd_i, PyObject *nd_o,
 		PyTuple_SetItem(passargs, 1, (PyObject *)sl_o);
 		for (npy_intp i=0; i<dims[1-axis]; i++) {
 			f(passargs);
-			if ((i==0)&&(n_eval > 0)) {
-				npy_float64 *el_r;
-				el_r = PyArray_GETPTR1(sl_o,1);
-				printf("FROM SLICE0: max_val = %f\n", *el_r);
-				fflush(stdout);
-			}
 			next_idx(sl_i, axis);
 			next_idx(sl_o, axis);
-		}
-		if (n_eval > 0) {
-			npy_float64 *el_t;
-			el_t = PyArray_GETPTR2(nd_o, 0, 1);
-			printf("FROM RbR: max_val = %f\n", *el_t);
-			fflush(stdout);
 		}
 		//Py_DECREF(sl_i);
 		//Py_DECREF(sl_o);
@@ -457,6 +404,30 @@ void rowbyrow(void (*f)(PyObject *args), PyObject *nd_i, PyObject *nd_o, long ax
 }
 
 /* ----------------- <MODULE FUNCTIONS> ----------------- */
+static PyObject *meth_exp_filt(PyObject *self, PyObject *args, PyObject *kwargs) {
+	static char *keywords[] = {"signal", "t0", "axis", NULL};
+	PyArrayObject *nd_s;
+	npy_float64 t0 = 100.; // exp decay constant in units of SAMPLES
+	long axis=1;
+	if (!PyArg_ParseTupleAndKeywords(args, kwargs, "O&|dl", keywords,
+		PyArray_Converter, &nd_s,
+		&t0,
+		&axis)) {
+		return NULL;
+	}
+	if (PyArray_TYPE(nd_s) != NPY_FLOAT64) {
+		PyErr_SetString(PyExc_TypeError, "Input array 's_raw' must be of dtype numpy.float64");
+	}
+	PyObject *nd_f = PyArray_NewLikeArray(nd_s, NPY_ANYORDER, NULL, 1);
+	PyObject *optargs = PyTuple_Pack(1, PyFloat_FromDouble(t0));
+	Py_INCREF(nd_s);
+	Py_INCREF(nd_f);
+	rowbyrow_optargs(exp_filt_row, (PyObject *)nd_s, nd_f, axis, optargs);
+	Py_DECREF(nd_s);
+	Py_DECREF(optargs);
+	return nd_f;
+}
+
 static PyObject *meth_avebox(PyObject *self, PyObject *args, PyObject *kwargs) {
 	static char *keywords[] = {"signal", "n", "axis", NULL};
 	PyArrayObject *nd_s;
@@ -485,33 +456,6 @@ static PyObject *meth_avebox(PyObject *self, PyObject *args, PyObject *kwargs) {
 	return nd_f;
 }
 
-static PyObject *meth_int_twice(PyObject *self, PyObject *args, PyObject *kwargs) {
-	static char *keywords[] = {"signal", "axis", NULL};
-	PyArrayObject *nd_i;
-	long axis=1;
-	if (!PyArg_ParseTupleAndKeywords(args, kwargs, "O&|l", keywords,
-		PyArray_Converter, &nd_i, &axis)) {
-		return NULL;
-	}
-	int ndim = PyArray_NDIM(nd_i);
-	if (ndim != 2) {
-		PyErr_SetString(PyExc_ValueError, "Input must be 2D");
-	}
-	npy_intp *dims_i = PyArray_DIMS(nd_i);
-	npy_intp dims_o[ndim];
-	dims_o[0] = dims_i[0];
-	dims_o[1] = 2;
-	//dims_o[1] = dims_i[1];
-	PyObject *nd_o = PyArray_EMPTY(ndim, dims_o, NPY_DOUBLE, NPY_CORDER);
-	//PyObject *nd_o = PyArray_NewLikeArray(nd_i, NPY_ANYORDER, NULL, 1);
-	
-	Py_INCREF(nd_i);
-	Py_INCREF(nd_o);
-	rowbyrow(integrate_twice_row, (PyObject *)nd_i, nd_o, axis);
-	Py_DECREF(nd_i);
-	return nd_o;
-}
-
 static PyObject *meth_find_peaks(PyObject *self, PyObject *args, PyObject *kwargs) {
 	static char *keywords[] = {"", "axis", "n", "thresh", NULL};
 	PyArrayObject *nd_i;
@@ -528,11 +472,14 @@ static PyObject *meth_find_peaks(PyObject *self, PyObject *args, PyObject *kwarg
 	int ndim = PyArray_NDIM(nd_i);
 	npy_intp *dims_i = PyArray_DIMS(nd_i);
 	npy_intp dims_o[ndim];
+	
+	long numKeys = 11;
+	
 	if (ndim == 2) {
 		dims_o[0] = dims_i[0];
-		dims_o[1] = 10 * n;
+		dims_o[1] = numKeys * n;
 	} else if (ndim == 1) {
-		dims_o[0] = 10 * n;
+		dims_o[0] = numKeys * n;
 	} else {
 		PyErr_SetString(PyExc_ValueError, "Input array must be 1d or 2d.");
 	}
@@ -547,33 +494,6 @@ static PyObject *meth_find_peaks(PyObject *self, PyObject *args, PyObject *kwarg
 	Py_DECREF(nd_i);
 	Py_DECREF(optargs);
 	
-	npy_float64 *el_test;
-	el_test = (npy_float64 *)PyArray_GETPTR2(nd_o, 0, 1);
-	printf("max_val from wrapper func: %f\n", *el_test);
-	fflush(stdout);
-	//return nd_o;
-	// perform some print testing on nd_o, particularly pulse times in samples
-	/*
-	npy_float64 *el_test;
-	printf("Input first elements:\n");
-	npy_float64 max_val = -100000.;
-	for (npy_intp i=0; i<1100; i++) {
-		el_test = (npy_float64 *)PyArray_GETPTR2(nd_i, 0, i);
-		if (*el_test > max_val) max_val = *el_test;
-		if (i<10) {
-			printf("%f;  ", *el_test);
-		}
-	}
-	printf("\n");
-	printf("max_val for 0th row: %f\n", max_val);
-	//el_test = (npy_float64 *)PyArray_GETPTR2((PyArrayObject *)nd_o, 0, 2);
-	//printf("The element is: %f\n", *el_test);
-	for (npy_intp i=0; i<10; i++) {
-		el_test = (npy_float64 *)PyArray_GETPTR2((PyArrayObject *)nd_o, 0, i);
-		printf("El %li: %f\n",i, *el_test);
-	}
-	fflush(stdout);
-	*/
 	/* Now parse this large 2d array into a dict with labels
 	   The output array has 10*n columns.  Each 10 columns corresponds to the RQs
 	   for one found pulse.  For example, if n=2, then:
@@ -581,36 +501,36 @@ static PyObject *meth_find_peaks(PyObject *self, PyObject *args, PyObject *kwarg
 	   columns 1-10 are the RQs for pulse 1
 	   columsn 11-20 are the RQs for pulse 2
 	   The current RQs, in order are:
-	        Col:  0,  1,   2,    3,    4,    5,   6,   7,   8.   9
-	         RQ: pA, pH, h0l, h50l, h100, h50r, h0r, a25, a50, a75
+	        Col:  0,  1,  2,   3,    4,    5,    6,   7,   8,   9,  10
+	         RQ: pA, pM, pH, h0l, h50l, h100, h50r, h0r, a25, a50, a75
 	*/
 	//Initiate output dictionary
 	PyObject *RQ_dict = PyDict_New();
 	
 	//Create the dict key names
-	const char *keys[10];
-	keys[0] = "pA";			//	Area of the pulse in [adcc*samples] (assuming input was adcc)
-	keys[1] = "pH";			//	Height of the pulse in [adcc]
-	keys[2] = "h0_l_samp";	//	Starting sample of the pulse (relative to the start of event window)
-	keys[3] = "h50_l_samp";	//	Sample that exceeds 50% of pulse height, on the left side of pulse
-	keys[4] = "h100_samp";	//	Sample where the pulse reaches its maximum value
-	keys[5] = "h50_r_samp";	//	Sample that exceeds 50% of pulse height, on the right side of the pulse
-	keys[6] = "h0_r_samp";	//	End sample of the pulse 
-	keys[7] = "a25_samp";	//	Sample where the area of the pulse reaches 25% of its full value
-	keys[8] = "a50_samp";	//	Sample where the area of the pulse reaches 50% of its full value
-	keys[9] = "a75_samp";	//	Sample where teh area of the uplse reaches 75% of its full value
+	const char *keys[numKeys];
+	keys[0]  = "pA";		//	Area of the pulse in [adcc*samples] (assuming input was adcc)
+	keys[1]  = "pH";		//	Height of the pulse in [adcc]
+	keys[2]  = "pM";		//	Minimum of the pulse [in whatever units input was given]
+	keys[3]  = "h0_l_samp";	//	Starting sample of the pulse (relative to the start of event window)
+	keys[4]  = "h50_l_samp";//	Sample that exceeds 50% of pulse height, on the left side of pulse
+	keys[5]  = "h100_samp";	//	Sample where the pulse reaches its maximum value
+	keys[6]  = "h50_r_samp";//	Sample that exceeds 50% of pulse height, on the right side of the pulse
+	keys[7]  = "h0_r_samp";	//	End sample of the pulse 
+	keys[8]  = "a25_samp";	//	Sample where the area of the pulse reaches 25% of its full value
+	keys[9]  = "a50_samp";	//	Sample where the area of the pulse reaches 50% of its full value
+	keys[10] = "a75_samp";	//	Sample where teh area of the uplse reaches 75% of its full value
 	
 	PyObject *sliceO;
 	PyObject *slice_tuple;
 	PyObject *RQ_array;
 	int r;
-	for (npy_intp k=0; k<10; k++){
-		sliceO = PySlice_New(PyLong_FromLong(k), NULL, PyLong_FromLong(10L));
+	for (npy_intp k=0; k<numKeys; k++){
+		sliceO = PySlice_New(PyLong_FromLong(k), NULL, PyLong_FromLong(numKeys));
 		slice_tuple = PyTuple_Pack(2, Py_Ellipsis, sliceO);
 		RQ_array = PyArray_Transpose((PyArrayObject *)PyObject_GetItem(nd_o, slice_tuple), NULL);
 		r = PyDict_SetItemString(RQ_dict, keys[k], PyArray_Squeeze((PyArrayObject *)RQ_array));
 	}
-	
 	
 	//Py_DECREF(nd_i); // <-- over decrefs the input
 	Py_DECREF(RQ_array);
@@ -635,9 +555,17 @@ PyDoc_STRVAR(
 	"        Default is axis=1, which means along the ROWS.\n"
 	"output: The filtered signal.  Will have the same size as s_raw.");
 PyDoc_STRVAR(
-	int_twice__doc__,
-	"int_twice(sig_in, axis=1)\n--\n\n"
-	"Do stuff.");
+	exp_filt__doc__,
+	"exp_filt(s_raw, t0=100., axis=1)\n--\n\n"
+	"Apply an exponential filter to a signal.\n"
+	" s_raw: raw signal.  Numpy array either 1d, or 2d.  If 2d,\n"
+	"        the signals will be filtered along axis.\n"
+	"    t0: The decay constant of the exponential filter\n"
+	"        in units of samples.\n"
+	"  axis: If s_raw is 2d, the filtering will occur along this axis.\n"
+	"        Default is axis=1, which means along the ROWS.\n"
+	"output: The filtered signal.  Will have the same size as s_raw.");
+
 PyDoc_STRVAR(
 	find_peaks__doc__,
 	"find_peaks(sig_in, axis=1, n=1, thresh=0.)\n--\n\n"
@@ -657,7 +585,7 @@ PyDoc_STRVAR(
 
 static PyMethodDef ldax_methods[] = {
 	{"avebox", (PyCFunction)meth_avebox,METH_VARARGS|METH_KEYWORDS, avebox__doc__},
-	{"int_twice",(PyCFunction)meth_int_twice,METH_VARARGS|METH_KEYWORDS, int_twice__doc__},
+	{"exp_filt",(PyCFunction)meth_exp_filt,METH_VARARGS|METH_KEYWORDS, exp_filt__doc__},
 	{"find_peaks",(PyCFunction)meth_find_peaks,METH_VARARGS|METH_KEYWORDS, find_peaks__doc__},
 	{NULL, NULL, 0, NULL}
 };
@@ -672,15 +600,6 @@ static struct PyModuleDef ldax_module = {
 	ldax_methods
 };
 
-/*
-static struct PyModuleDef ldax_module = {
-	PyModuleDef_HEAD_INIT,
-	"ldax_methods",
-	"Data processing methods for ldax data",
-	-1,
-	ldax_methods
-};
-*/
 PyMODINIT_FUNC PyInit_c_ldax_proc_testing250328(void) {
 	import_array();
 	return PyModule_Create(&ldax_module);
