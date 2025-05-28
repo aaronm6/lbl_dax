@@ -109,10 +109,31 @@ void exp_filt_row(PyObject *args) {
 		PyErr_SetString(PyExc_IndexError, "Input and output rows must have the same length");
 	}
 	npy_float64 *s_el, *f_el, *f_el_last;
+	npy_float64 pre_sum = 0.;
 	s_el = (npy_float64 *)PyArray_GETPTR1(nd_s,0);
 	f_el = (npy_float64 *)PyArray_GETPTR1(nd_f,0);
 	*f_el = *s_el;
 	npy_float64 exp_neg1 = exp(-1./t0);
+	
+	// If the filter starts directly at the beginning of the signal, then it requires
+	// a settling-in period; the filter is a weighted sum of all past samples, so if
+	// there are not so many past samples, the early values of the filtered signal will
+	// be biased by the first few samples of the unfiltered signal.  To mitigate this
+	// issue, I basically take the first 2*t0 samples, reflect them about zero, thus
+	// padding the signal array for the filter.  The first for loop below does this;
+	// I start at the (2*t0)'th sample and work the filter backwards to zero, then begin 
+	// forwards again.  'pre-sum' is the filtered value of this padding, which is not
+	// a pointer because it doesn't need to be saved anywhere.
+	//pre_sum = *((npy_float64 *)PyArray_GETPTR1(nd_s, npy_intp(t0)));
+	pre_sum = *((npy_float64 *)PyArray_GETPTR1(nd_s, (npy_intp)(2.*t0)));
+	
+	for (npy_intp k=(npy_intp)(2*t0)-1; k>=0; k--) {
+		s_el = (npy_float64 *)PyArray_GETPTR1(nd_s, k);
+		pre_sum = (*s_el)/t0 + exp_neg1*pre_sum;
+	}
+	f_el_last = (npy_float64 *)PyArray_GETPTR1(nd_f, 0);
+	*f_el_last = pre_sum;
+	
 	for (npy_intp k=1; k<numel; k++) {
 		s_el = (npy_float64 *)PyArray_GETPTR1(nd_s,k);
 		f_el = (npy_float64 *)PyArray_GETPTR1(nd_f,k);
