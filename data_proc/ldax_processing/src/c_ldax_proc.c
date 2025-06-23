@@ -561,6 +561,11 @@ static PyObject *meth_find_peaks(PyObject *self, PyObject *args, PyObject *kwarg
 	return RQ_dict;
 }
 
+static PyObject *meth_helloworld(PyObject *self, PyObject *Py_UNUSED(args)){
+	printf("Hello world\n");
+	fflush(stdout);
+	Py_RETURN_NONE;
+}
 
 /* ----------------- </MODULE FUNCTIONS> ----------------- */
 
@@ -598,6 +603,7 @@ static PyMethodDef ldax_methods[] = {
 	{"avebox", (PyCFunction)meth_avebox,METH_VARARGS|METH_KEYWORDS, avebox__doc__},
 	{"exp_filt",(PyCFunction)meth_exp_filt,METH_VARARGS|METH_KEYWORDS, exp_filt__doc__},
 	{"find_peaks",(PyCFunction)meth_find_peaks,METH_VARARGS|METH_KEYWORDS, find_peaks__doc__},
+	{"helloworld",meth_helloworld, METH_NOARGS, "Print hello (no inputs/outputs)"},
 	{NULL, NULL, 0, NULL}
 };
 
