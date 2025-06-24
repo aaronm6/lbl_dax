@@ -12,6 +12,9 @@ Functions for filtering:
  - lowpass_exp: An exponential lowpass filter of a time series data signal.
  - avebox: A rolling-average filter (i.e. a convolution with a box function)
  - exp_filt: A convolution of a decaying-exponential
+ - crosscorr: Perform a cross-correlation filter of a waveform with a given kernel, aka
+              a template function that represents the pulse shape that is being searched
+              for.
 
 Processing function:
  - find_peaks: Takes a time-series waveform, looks for peaks and calculates peak

@@ -449,7 +449,7 @@ static PyObject *meth_exp_filt(PyObject *self, PyObject *args, PyObject *kwargs)
 	return nd_f;
 }
 
-void forwardfilt_row(PyObject *args) {
+void crosscorr_row(PyObject *args) {
 	// nd_s is the initial signal
 	// nd_f is the filtered signal
 	// nd_kern is the kernal that will be used to filter
@@ -519,7 +519,7 @@ static PyObject *meth_avebox(PyObject *self, PyObject *args, PyObject *kwargs) {
 	return nd_f;
 }
 
-static PyObject *meth_forwardfilt(PyObject *self, PyObject *args, PyObject *kwargs) {
+static PyObject *meth_crosscorr(PyObject *self, PyObject *args, PyObject *kwargs) {
 	static char *keywords[] = {"signal", "kernel", "axis", NULL};
 	PyArrayObject *nd_s, *nd_kern;
 	long axis=-1;
@@ -542,7 +542,7 @@ static PyObject *meth_forwardfilt(PyObject *self, PyObject *args, PyObject *kwar
 	Py_INCREF(nd_s);
 	Py_INCREF(nd_f);
 	//Py_INCREF(nd_kern);
-	rowbyrow_optargs(forwardfilt_row, (PyObject *)nd_s, nd_f, axis, optargs);
+	rowbyrow_optargs(crosscorr_row, (PyObject *)nd_s, nd_f, axis, optargs);
 	Py_DECREF(nd_s);
 	//Py_DECREF(nd_f);
 	Py_DECREF(nd_kern);
@@ -660,22 +660,39 @@ PyDoc_STRVAR(
 	"output: The filtered signal.  Will have the same size as s_raw.");
 
 PyDoc_STRVAR(
-	forwardfilt__doc__,
-	"forwardfilt(s_raw, s_kern, axis=-1)\n--\n\n"
-	"Forward-convolve a kernel signal with an observed waveform\n");
+	crosscorr__doc__,
+	"crosscorr(s_raw, s_kern, axis=-1)\n--\n\n"
+	"Cross-correlate a kernel signal with an observed waveform. This is\n"
+	"useful when you have a template pulse you are searching for in a\n"
+	"noisy waveform.  This differs from a convolution, in that a\n"
+	"convolution time-reverses the template pulse (i.e. kernel), while a\n"
+	"cross-correlation does not.\n"
+	"Inputs:\n"
+	"    s_raw: The raw waveform.  Must be a 1-d or 2-d numpy array of dtype\n"
+	"           float.\n"
+	"   s_kern: A 1-d numpy array (of dtype float) that represents the\n"
+	"           pulse shape that is being searched for. The kernel must\n"
+	"           have fewer elements than the waveform of a single event.\n"
+	"     axis: If s_raw is 2-d, this specifies which dimension will be\n"
+	"           considered as an event.  Typically, each row is an event,\n"
+	"           which means axis should be 1 or -1 (-1 is default, which\n"
+	"           just means the last dimension of the array).\n"
+	"Outputs:\n"
+	"   s_filt: The resulting cross correlated filtered signal. Same\n"
+	"           dimensions as s_raw."
+	);
 
 PyDoc_STRVAR(
 	find_peaks__doc__,
 	"find_peaks(sig_in, axis=-1, n=1, thresh=0.)\n--\n\n"
-	"Find n peaks above threshold.  Returns a dict whose"
-	"keys describe different reduced quantities of each"
-	"found pulse.");
+	"Find n peaks above threshold.  Returns a dict whose keys describe "
+	"different reduced quantities of each found pulse.");
 
 static PyMethodDef ldax_methods[] = {
 	{"avebox", (PyCFunction)meth_avebox,METH_VARARGS|METH_KEYWORDS, avebox__doc__},
 	{"exp_filt",(PyCFunction)meth_exp_filt,METH_VARARGS|METH_KEYWORDS, exp_filt__doc__},
 	{"find_peaks",(PyCFunction)meth_find_peaks,METH_VARARGS|METH_KEYWORDS, find_peaks__doc__},
-	{"forwardfilt",(PyCFunction)meth_forwardfilt,METH_VARARGS|METH_KEYWORDS, forwardfilt__doc__},
+	{"crosscorr",(PyCFunction)meth_crosscorr,METH_VARARGS|METH_KEYWORDS, crosscorr__doc__},
 	{NULL, NULL, 0, NULL}
 };
 
