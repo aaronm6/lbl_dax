@@ -449,6 +449,48 @@ static PyObject *meth_exp_filt(PyObject *self, PyObject *args, PyObject *kwargs)
 	return nd_f;
 }
 
+void forwardfilt_row(PyObject *args) {
+	// nd_s is the initial signal
+	// nd_f is the filtered signal
+	// nd_kern is the kernal that will be used to filter
+	PyObject *nd_s, *nd_f, *nd_kern;
+	if (!PyArg_ParseTuple(args, "O&O&O&",
+		PyArray_Converter, &nd_s,
+		PyArray_Converter, &nd_f,
+		PyArray_Converter, &nd_kern)) {
+		PyErr_SetString(PyExc_ValueError, "Something went wrong with inputs unpacking in forwardfilt_row");
+	}
+	npy_intp numel = PyArray_SIZE(nd_s);
+	npy_intp numelf = PyArray_SIZE(nd_f);
+	if (numel != numelf) {
+		PyErr_SetString(PyExc_IndexError, "Input and output rows must have the same length");
+	}
+	npy_intp numel_kern = PyArray_SIZE(nd_kern);
+	if (numel_kern >= numel) {
+		PyErr_SetString(PyExc_IndexError, "Kernal cannot have more elements than the signal");
+	}
+	
+	npy_float64 *s_el, *f_el, *f_kern; // pointers to elements in the arrays
+	npy_float64 f_sum = 0.;
+	npy_intp n_left; // this will tell us how many elements there are left in the signal array
+	
+	for (npy_intp i_s=0; i_s<numel; i_s++) {
+		n_left = numel - i_s;
+		f_sum = 0.;
+		for (npy_intp i_k=0; i_k<intp_min(numel_kern,n_left); i_k++) {
+			s_el = (npy_float64 *)PyArray_GETPTR1(nd_s, i_s+i_k);
+			f_kern = (npy_float64 *)PyArray_GETPTR1(nd_kern, i_k);
+			f_sum += *s_el * *f_kern;
+		}
+		f_el = (npy_float64 *)PyArray_GETPTR1(nd_f, i_s);
+		*f_el = f_sum;
+	}
+	
+	Py_DECREF(nd_s);
+	Py_DECREF(nd_f);
+	Py_DECREF(nd_kern);
+}
+
 static PyObject *meth_avebox(PyObject *self, PyObject *args, PyObject *kwargs) {
 	static char *keywords[] = {"signal", "n", "axis", NULL};
 	PyArrayObject *nd_s;
@@ -474,6 +516,37 @@ static PyObject *meth_avebox(PyObject *self, PyObject *args, PyObject *kwargs) {
 	rowbyrow_optargs(avebox_row, (PyObject *)nd_s, nd_f, axis, optargs);
 	Py_DECREF(nd_s);
 	Py_DECREF(optargs);
+	return nd_f;
+}
+
+static PyObject *meth_forwardfilt(PyObject *self, PyObject *args, PyObject *kwargs) {
+	static char *keywords[] = {"signal", "kernel", "axis", NULL};
+	PyArrayObject *nd_s, *nd_kern;
+	long axis=-1;
+	if (!PyArg_ParseTupleAndKeywords(args, kwargs, "O&O&|l", keywords,
+		PyArray_Converter, &nd_s,
+		PyArray_Converter, &nd_kern,
+		&axis)) {
+			return NULL;
+		}
+	if (PyArray_TYPE(nd_s) != NPY_FLOAT64) {
+		PyErr_SetString(PyExc_TypeError, "Input array 's_raw' must be of dtype numpy.float64");
+	}
+	if (PyArray_TYPE(nd_kern) != NPY_FLOAT64) {
+		PyErr_SetString(PyExc_TypeError, "Input array 's_kern' must be of dtype numpy.float64");
+	}
+	int ndim = PyArray_NDIM(nd_s);
+	axis = (axis + ndim) % ndim;
+	PyObject *nd_f = PyArray_NewLikeArray(nd_s, NPY_ANYORDER, NULL, 1);
+	PyObject *optargs = PyTuple_Pack(1, (PyObject *)nd_kern);
+	Py_INCREF(nd_s);
+	Py_INCREF(nd_f);
+	//Py_INCREF(nd_kern);
+	rowbyrow_optargs(forwardfilt_row, (PyObject *)nd_s, nd_f, axis, optargs);
+	Py_DECREF(nd_s);
+	//Py_DECREF(nd_f);
+	Py_DECREF(nd_kern);
+	Py_DECREF(nd_kern);
 	return nd_f;
 }
 
@@ -561,18 +634,12 @@ static PyObject *meth_find_peaks(PyObject *self, PyObject *args, PyObject *kwarg
 	return RQ_dict;
 }
 
-static PyObject *meth_helloworld(PyObject *self, PyObject *Py_UNUSED(args)){
-	printf("Hello world\n");
-	fflush(stdout);
-	Py_RETURN_NONE;
-}
-
 /* ----------------- </MODULE FUNCTIONS> ----------------- */
 
 
 PyDoc_STRVAR(
 	avebox__doc__,
-	"avebox(s_raw, n, axis=1)\n--\n\n"
+	"avebox(s_raw, n, axis=-1)\n--\n\n"
 	"Apply a box average filter to a signal.\n"
 	" s_raw: raw signal.  Numpy array either 1d, or 2d.  If 2d,\n"
 	"        the signals will be filtered along axis.\n"
@@ -582,7 +649,7 @@ PyDoc_STRVAR(
 	"output: The filtered signal.  Will have the same size as s_raw.");
 PyDoc_STRVAR(
 	exp_filt__doc__,
-	"exp_filt(s_raw, t0=100., axis=1)\n--\n\n"
+	"exp_filt(s_raw, t0=100., axis=-1)\n--\n\n"
 	"Apply an exponential filter to a signal.\n"
 	" s_raw: raw signal.  Numpy array either 1d, or 2d.  If 2d,\n"
 	"        the signals will be filtered along axis.\n"
@@ -593,8 +660,13 @@ PyDoc_STRVAR(
 	"output: The filtered signal.  Will have the same size as s_raw.");
 
 PyDoc_STRVAR(
+	forwardfilt__doc__,
+	"forwardfilt(s_raw, s_kern, axis=-1)\n--\n\n"
+	"Forward-convolve a kernel signal with an observed waveform\n");
+
+PyDoc_STRVAR(
 	find_peaks__doc__,
-	"find_peaks(sig_in, axis=1, n=1, thresh=0.)\n--\n\n"
+	"find_peaks(sig_in, axis=-1, n=1, thresh=0.)\n--\n\n"
 	"Find n peaks above threshold.  Returns a dict whose"
 	"keys describe different reduced quantities of each"
 	"found pulse.");
@@ -603,7 +675,7 @@ static PyMethodDef ldax_methods[] = {
 	{"avebox", (PyCFunction)meth_avebox,METH_VARARGS|METH_KEYWORDS, avebox__doc__},
 	{"exp_filt",(PyCFunction)meth_exp_filt,METH_VARARGS|METH_KEYWORDS, exp_filt__doc__},
 	{"find_peaks",(PyCFunction)meth_find_peaks,METH_VARARGS|METH_KEYWORDS, find_peaks__doc__},
-	{"helloworld",meth_helloworld, METH_NOARGS, "Print hello (no inputs/outputs)"},
+	{"forwardfilt",(PyCFunction)meth_forwardfilt,METH_VARARGS|METH_KEYWORDS, forwardfilt__doc__},
 	{NULL, NULL, 0, NULL}
 };
 
