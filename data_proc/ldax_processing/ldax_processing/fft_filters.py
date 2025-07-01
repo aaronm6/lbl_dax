@@ -64,4 +64,29 @@ def lowpass_exp(y, bw, axis=-1):
     """
     return _lowpass_util(y, bw, axis=axis, filt_func=_exp_filt)
 
+#forwardconv(s_raw, s_kern, axis=-1)\n--\n\n"
+def forwardconv_fft(s_raw, s_kern, axis=-1):
+    """
+    The same as the c-compiled forward-convolution, but here the calculation is performed in 
+    Fourier space.  length of s_kern must be less than that of s_raw
+    """
+    s_kern_pad = np.r_[s_kern, zeros(s_raw.shape[axis=axis]-len(s_kern))]
+    S_raw = fft.rfft(s_raw, axis=axis)
+    S_kern = fft.rfft(s_kern_pad)
+    if (axis % A.ndim) = 0:
+        S_kern_broadcast = S_kern[:, newaxis]
+    else:
+        S_kern_broadcast = S_kern[newaxis,:]
+    F_fc = S_raw * (S_kern_broadcast.conjugate)
+    f_fc = fft.irfft(F_fc)
+    return f_fc
+
+
+
+
+
+
+
+
+
 
