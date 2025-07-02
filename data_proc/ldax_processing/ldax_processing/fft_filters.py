@@ -77,7 +77,7 @@ def forwardconv_fft(s_raw, s_kern, axis=-1):
         S_kern_broadcast = S_kern[:, newaxis]
     else:
         S_kern_broadcast = S_kern[newaxis,:]
-    F_fc = S_raw * (S_kern_broadcast.conjugate)
+    F_fc = S_raw * (S_kern_broadcast.conjugate())
     f_fc = fft.irfft(F_fc)
     return f_fc
 
