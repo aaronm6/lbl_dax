@@ -71,14 +71,14 @@ def forwardconv_fft(s_raw, s_kern, axis=-1):
     Fourier space.  length of s_kern must be less than that of s_raw
     """
     s_kern_pad = np.r_[s_kern, zeros(s_raw.shape[axis]-len(s_kern))]
-    S_raw = fft.rfft(s_raw, axis=axis)
-    S_kern = fft.rfft(s_kern_pad)
+    S_raw = np.fft.rfft(s_raw, axis=axis)
+    S_kern = np.fft.rfft(s_kern_pad)
     if (axis % A.ndim) == 0:
         S_kern_broadcast = S_kern[:, newaxis]
     else:
         S_kern_broadcast = S_kern[newaxis,:]
     F_fc = S_raw * (S_kern_broadcast.conjugate())
-    f_fc = fft.irfft(F_fc)
+    f_fc = np.fft.irfft(F_fc)
     return f_fc
 
 
