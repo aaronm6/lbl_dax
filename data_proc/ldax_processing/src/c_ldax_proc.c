@@ -678,7 +678,7 @@ PyDoc_STRVAR(
 	"           which means axis should be 1 or -1 (-1 is default, which\n"
 	"           just means the last dimension of the array).\n"
 	"Outputs:\n"
-	"   s_filt: The resulting forward-convolved signal. Same dimensions as\n
+	"   s_filt: The resulting forward-convolved signal. Same dimensions as\n"
 	"           s_raw."
 	);
 

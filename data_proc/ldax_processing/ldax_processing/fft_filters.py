@@ -70,10 +70,10 @@ def forwardconv_fft(s_raw, s_kern, axis=-1):
     The same as the c-compiled forward-convolution, but here the calculation is performed in 
     Fourier space.  length of s_kern must be less than that of s_raw
     """
-    s_kern_pad = np.r_[s_kern, zeros(s_raw.shape[axis=axis]-len(s_kern))]
+    s_kern_pad = np.r_[s_kern, zeros(s_raw.shape[axis]-len(s_kern))]
     S_raw = fft.rfft(s_raw, axis=axis)
     S_kern = fft.rfft(s_kern_pad)
-    if (axis % A.ndim) = 0:
+    if (axis % A.ndim) == 0:
         S_kern_broadcast = S_kern[:, newaxis]
     else:
         S_kern_broadcast = S_kern[newaxis,:]

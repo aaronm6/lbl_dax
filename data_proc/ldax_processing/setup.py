@@ -10,7 +10,7 @@ module = Extension(
 #print(find_packages(include=["ldax_processing"]))
 setup(
     name="ldax_processing",
-    version="0.2.0",
+    version="0.2.1",
     description="Data-processing library for ldax",
     author="Aaron Manalaysay",
     license="GPL-2.1",
