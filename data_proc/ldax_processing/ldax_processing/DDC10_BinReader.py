@@ -96,4 +96,5 @@ def Read_DDC10_fName(fName):
     
     with openner(fName,'rb') as ff:
         waveArr, waveInfo = Read_DDC10_fHandle(ff)
+    waveInfo.update({'filename':fName})
     return waveArr, waveInfo
