@@ -14,6 +14,7 @@ Updated to have functionality to read gzipped files.
 @author: AaronM
 """
 
+import os
 import numpy as np
 import gzip
 
@@ -140,10 +141,11 @@ def Read_DDC10_fName(fName, start_event=0, num_events=-1):
                  where numSamples is the number of samples collected in a single event.
        waveInfo: Meta data in the form of a dict object
     """
-    gzipStatus = is_gzipped(fName)
+    fName0 = os.path.expanduser(fName)
+    gzipStatus = is_gzipped(fName0)
     openner = gzip.open if gzipStatus else open
     
-    with openner(fName,'rb') as ff:
+    with openner(fName0,'rb') as ff:
         waveArr, waveInfo = Read_DDC10_fHandle(ff, start_event=start_event, num_events=num_events)
-    waveInfo.update({'filename':fName})
+    waveInfo.update({'filename':fName0})
     return waveArr, waveInfo
