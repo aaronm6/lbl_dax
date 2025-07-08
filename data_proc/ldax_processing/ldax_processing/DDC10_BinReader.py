@@ -56,10 +56,18 @@ def is_gzipped(fName):
             return False
     return True
 
-def Read_DDC10_fHandle(fp):
-    freader = gz_fromfile if isinstance(fp, gzip.GzipFile) else np.fromfile
-    waveInfo = {}
+def Read_DDC10_metadata(fp):
+    """
+    Read the metadata from the file
+    """
+    # Meta data is strictly at the beginning of the file, so we need to seek(0)
+    fp.seek(0,0)
     
+    # Select a 'fromfile' method that is appropriate for the type of file (raw or gzipped)
+    freader = gz_fromfile if isinstance(fp, gzip.GzipFile) else np.fromfile
+    
+    # Initialize the metadata dict and fill it
+    waveInfo = {}
     numEvents, numSamples, chSelMask, byteOrderPatternCode = \
         freader(fp, dtype=np.uint32, count=4)
     chMap = np.where(bitfield(chSelMask))[0]
@@ -69,32 +77,73 @@ def Read_DDC10_fHandle(fp):
     waveInfo['numSamples']  = numSamples
     waveInfo['chMap']       = chMap
     waveInfo['numChannels'] = numChannels
-    waveArr = np.empty((numChannels,numEvents,numSamples),dtype=np.int16)
+    return waveInfo
+
+def Read_DDC10_fHandle(fp, start_event=0, num_events=-1):
+    """
+    num_events=-1 means all remaining events in the file
+    """
     
-    for ievt in range(numEvents):
-        for ich in range(numChannels):
+    # Select a 'fromfile' method that is appropriate for the type of file (raw or gzipped)
+    freader = gz_fromfile if isinstance(fp, gzip.GzipFile) else np.fromfile
+    
+    # Get file size:
+    filesize_bytes = fp.seek(0,2)
+    fp.seek(0,0)
+    
+    # Read the metadata
+    waveInfo = Read_DDC10_metadata(fp)
+    
+    # File position should now be advanced past the header, which is 16 bytes
+    event_size_bytes = \
+        waveInfo['numChannels'] * \
+        (2 * np.dtype(np.uint32).itemsize + \
+        waveInfo['numSamples']*np.dtype(np.int16).itemsize + \
+        1 * np.dtype(np.uint32).itemsize)
+    
+    # determine how many events to read and make sure we're not trying to read
+    # more events than are in the file
+    num_evts_read = waveInfo['numEvents'] if num_events==-1 else num_events
+    num_evts_read = min(num_evts_read, (waveInfo['numEvents']-start_event))
+    
+    waveInfo['numEventsRead'] = num_evts_read
+    
+    # Move to the position of the first event that you want to read
+    fp.seek(start_event*event_size_bytes,1)
+    
+    # Initialize the array that holds the waveform data
+    waveArr = np.empty((waveInfo['numChannels'],num_evts_read,waveInfo['numSamples']),dtype=np.int16)
+    for ievt in range(num_evts_read):
+        for ich in range(waveInfo['numChannels']):
             _ = freader(fp,dtype=np.uint32,count=2)
-            waveTmp = freader(fp,dtype=np.int16,count=numSamples)
+            waveTmp = freader(fp,dtype=np.int16,count=waveInfo['numSamples'])
             if waveTmp.size:
                 waveArr[ich,ievt,:] = waveTmp
             _ = freader(fp,dtype=np.uint32,count=1)
     return waveArr, waveInfo
 
-def Read_DDC10_fName(fName):
+def Read_DDC10_fName(fName, start_event=0, num_events=-1):
     """
     Read waveform data and metadata from a binary file from the DDC10.
     File given by input 'fName' must be in the format produced by the DDC10.  It CAN be gzipped.
     
+    Inputs:
+          fName: Filename (including path, either absolute or relative) to read
+    start_event: The first event to read.  Default is zero (i.e. start at the beginning)
+     num_events: How many events to read.  The number of events available is the total
+                 number of events in the file, minus start_event.  If more than this number
+                 are requested, no warnings or errors are given, and the maximum events 
+                 available will be read.  Default: -1 (which means all available)
     Outputs: 
         waveArr: Waveform data.  Format: 3D numpy array of dype np.int16. The dimensions are:
-            (numChannels x numEvents x numSamples)
-            where numSamples is the number of samples collected in a single event.
+                 (numChannels x numEvents x numSamples)
+                 where numSamples is the number of samples collected in a single event.
        waveInfo: Meta data in the form of a dict object
     """
     gzipStatus = is_gzipped(fName)
     openner = gzip.open if gzipStatus else open
     
     with openner(fName,'rb') as ff:
-        waveArr, waveInfo = Read_DDC10_fHandle(ff)
+        waveArr, waveInfo = Read_DDC10_fHandle(ff, start_event=start_event, num_events=num_events)
     waveInfo.update({'filename':fName})
     return waveArr, waveInfo
