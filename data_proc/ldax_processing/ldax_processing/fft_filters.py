@@ -1,7 +1,8 @@
 import numpy as np
 
 def _RC_n_filt(freq, bw, n=1):
-    g_out = 1/((freq*((2**(1/n))-1)/bw + 1)**n)
+    a = sqrt((2**(1/n))-1)
+    g_out = (1/((1j)*freq*a/bw+1))**n
     return g_out
 
 def _exp_filt(freq, bw):
@@ -9,11 +10,15 @@ def _exp_filt(freq, bw):
     return g_out
 
 def _gauss_filt(freq, bw):
-    g_out = np.exp(-(freq**2)*np.log(2)/(bw**2))
+    """
+    This is the filter is equivalent to the limit of the RC n-pole filter as n approaches
+    infinity, assuming one holds the true -3db bandwidth constant.
+    """
+    g_out = np.exp(-(freq**2)*np.log(2)/(bw**2)/2)
     return g_out
 
 def _lowpass_util(y, bw, axis=-1, filt_func=_RC_n_filt, **kwargs):
-    assert isinstance(y, np.ndarray), "y must be a numpy array"
+    assert isinstance(y, np.ndarray ), "y must be a numpy array"
     assert y.ndim in (1,2), "Input y must be 1d or 2d"
     
     Y = np.fft.rfft(y, axis=axis)
@@ -43,7 +48,7 @@ def lowpass_RC(y, bw, n=1, axis=-1):
              that if I just naively repeat an RC filter twice, the bandwidth of the new filter
              is NOT 1/(2*pi*RC) anymore.  But here when n > 1, the bw parameter does still 
              actually describe the true bandwidth of the filter (i.e. the frequency at which the
-             gain of the filter is 0.5).
+             gain of the filter is sqrt(0.5).
        axis: The axis over which the filter will be performed.  If axis=1, then each row is
              treated as a separate waveform; if axis=0, then each column is treated as a 
              separate waveform.  The default is axis=-1, which just means it would take the last

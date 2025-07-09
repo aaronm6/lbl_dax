@@ -119,29 +119,14 @@ def Read_DDC10_fHandle(fp, start_event=0, num_events=-1,method='normal'):
     fp.seek(start_event*event_size_bytes,1)
     
     # Initialize the array that holds the waveform data
-    if method=='block':
-        waveArr = np.empty((num_evts_read,waveInfo['numChannels'],waveInfo['numSamples']+6),dtype=np.int16)
-        # waveArr.transpose((1,0,2)) swaps the first two dimensions but leaves the third in place
-        # transpose doesn't touch the data array, only the shape and strides.  But the above is now
-        # neither C-continuous nor F-continuous
-        
-        with tictoc("Read the file..."):
-            waveArr.ravel('K')[:] = freader(fp, dtype=np.int16, count=waveArr.size)
-        with tictoc("Chop off per-event-channel header/footer..."):
-            waveArr = waveArr[:,:,4:-2]
-        with tictoc("Reshape array..."):
-            waveArr = np.transpose(waveArr,axes=(1,0,2))
-    elif method=='normal':
-        waveArr = np.empty((waveInfo['numChannels'],num_evts_read,waveInfo['numSamples']),dtype=np.int16)
-        for ievt in range(num_evts_read):
-            for ich in range(waveInfo['numChannels']):
-                _ = freader(fp,dtype=np.uint32,count=2)
-                waveTmp = freader(fp,dtype=np.int16,count=waveInfo['numSamples'])
-                if waveTmp.size:
-                    waveArr[ich,ievt,:] = waveTmp
-                _ = freader(fp,dtype=np.uint32,count=1)
-    else:
-        raise ValueError("I don't understand your method")
+    waveArr = np.empty((waveInfo['numChannels'],num_evts_read,waveInfo['numSamples']),dtype=np.int16)
+    for ievt in range(num_evts_read):
+        for ich in range(waveInfo['numChannels']):
+            _ = freader(fp,dtype=np.uint32,count=2)
+            waveTmp = freader(fp,dtype=np.int16,count=waveInfo['numSamples'])
+            if waveTmp.size:
+                waveArr[ich,ievt,:] = waveTmp
+            _ = freader(fp,dtype=np.uint32,count=1)
     return waveArr, waveInfo
 
 def Read_DDC10_fName(fName, start_event=0, num_events=-1, method='normal'):
