@@ -125,11 +125,11 @@ def Read_DDC10_fHandle(fp, start_event=0, num_events=-1,method='normal'):
         # transpose doesn't touch the data array, only the shape and strides.  But the above is now
         # neither C-continuous nor F-continuous
         
-        with tictoc("Read the file...")
+        with tictoc("Read the file..."):
             waveArr.ravel('K')[:] = freader(fp, dtype=np.int16, count=waveArr.size)
-        with tictoc("Chop off per-event-channel header/footer...")
+        with tictoc("Chop off per-event-channel header/footer..."):
             waveArr = waveArr[:,:,4:-2]
-        with tictoc("Reshape array...")
+        with tictoc("Reshape array..."):
             waveArr = np.transpose(waveArr,axes=(1,0,2))
     elif method=='normal':
         waveArr = np.empty((waveInfo['numChannels'],num_evts_read,waveInfo['numSamples']),dtype=np.int16)
