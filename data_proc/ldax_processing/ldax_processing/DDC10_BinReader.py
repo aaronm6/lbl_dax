@@ -85,7 +85,7 @@ def Read_DDC10_metadata(fp):
     waveInfo['numChannels'] = numChannels
     return waveInfo
 
-def Read_DDC10_fHandle(fp, start_event=0, num_events=-1,method='normal'):
+def Read_DDC10_fHandle(fp, start_event=0, num_events=-1):
     """
     num_events=-1 means all remaining events in the file
     """
@@ -128,7 +128,7 @@ def Read_DDC10_fHandle(fp, start_event=0, num_events=-1,method='normal'):
             _ = freader(fp,dtype=np.uint32,count=1)
     return waveArr, waveInfo
 
-def Read_DDC10_fName(fName, start_event=0, num_events=-1, method='normal'):
+def Read_DDC10_fName(fName, start_event=0, num_events=-1):
     """
     Read waveform data and metadata from a binary file from the DDC10.
     File given by input 'fName' must be in the format produced by the DDC10.  It CAN be gzipped.
@@ -151,6 +151,6 @@ def Read_DDC10_fName(fName, start_event=0, num_events=-1, method='normal'):
     openner = gzip.open if gzipStatus else open
     
     with openner(fName0,'rb') as ff:
-        waveArr, waveInfo = Read_DDC10_fHandle(ff, start_event=start_event, num_events=num_events, method=method)
+        waveArr, waveInfo = Read_DDC10_fHandle(ff, start_event=start_event, num_events=num_events)
     waveInfo.update({'filename':fName0})
     return waveArr, waveInfo
