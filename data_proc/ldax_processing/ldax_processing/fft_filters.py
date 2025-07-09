@@ -1,7 +1,7 @@
 import numpy as np
 
 def _RC_n_filt(freq, bw, n=1):
-    a = sqrt((2**(1/n))-1)
+    a = np.sqrt((2**(1/n))-1)
     g_out = (1/((1j)*freq*a/bw+1))**n
     return g_out
 
