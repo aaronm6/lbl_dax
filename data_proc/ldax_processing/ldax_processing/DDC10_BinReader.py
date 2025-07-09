@@ -22,7 +22,6 @@ event and the number of events.
 import os
 import numpy as np
 import gzip
-from aLib import tictoc
 
 def bitfield(n):
     return [int(digit) for digit in bin(n)[2:]][::-1]
