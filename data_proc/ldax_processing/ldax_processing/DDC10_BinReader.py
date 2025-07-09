@@ -22,6 +22,7 @@ event and the number of events.
 import os
 import numpy as np
 import gzip
+from aLib import tictoc
 
 def bitfield(n):
     return [int(digit) for digit in bin(n)[2:]][::-1]
@@ -123,9 +124,13 @@ def Read_DDC10_fHandle(fp, start_event=0, num_events=-1,method='normal'):
         # waveArr.transpose((1,0,2)) swaps the first two dimensions but leaves the third in place
         # transpose doesn't touch the data array, only the shape and strides.  But the above is now
         # neither C-continuous nor F-continuous
-        waveArr.ravel('K')[:] = freader(fp, dtype=np.int16, count=waveArr.size)
-        waveArr = waveArr[:,:,4:-2]
-        waveArr = np.transpose(waveArr,axes=(1,0,2))
+        
+        with tictoc("Read the file...")
+            waveArr.ravel('K')[:] = freader(fp, dtype=np.int16, count=waveArr.size)
+        with tictoc("Chop off per-event-channel header/footer...")
+            waveArr = waveArr[:,:,4:-2]
+        with tictoc("Reshape array...")
+            waveArr = np.transpose(waveArr,axes=(1,0,2))
     elif method=='normal':
         waveArr = np.empty((waveInfo['numChannels'],num_evts_read,waveInfo['numSamples']),dtype=np.int16)
         for ievt in range(num_evts_read):
