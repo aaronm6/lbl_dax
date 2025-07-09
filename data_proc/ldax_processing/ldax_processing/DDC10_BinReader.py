@@ -12,6 +12,11 @@ May 22 10:06:30 2025
 Simplified logic for function bitfield
 Updated to have functionality to read gzipped files.
 @author: AaronM
+
+Jul 8
+Added ability to read out just a part of a file, specifying the first
+event and the number of events.
+@author: AaronM
 """
 
 import os
@@ -80,7 +85,7 @@ def Read_DDC10_metadata(fp):
     waveInfo['numChannels'] = numChannels
     return waveInfo
 
-def Read_DDC10_fHandle(fp, start_event=0, num_events=-1):
+def Read_DDC10_fHandle(fp, start_event=0, num_events=-1,method='normal'):
     """
     num_events=-1 means all remaining events in the file
     """
@@ -113,17 +118,28 @@ def Read_DDC10_fHandle(fp, start_event=0, num_events=-1):
     fp.seek(start_event*event_size_bytes,1)
     
     # Initialize the array that holds the waveform data
-    waveArr = np.empty((waveInfo['numChannels'],num_evts_read,waveInfo['numSamples']),dtype=np.int16)
-    for ievt in range(num_evts_read):
-        for ich in range(waveInfo['numChannels']):
-            _ = freader(fp,dtype=np.uint32,count=2)
-            waveTmp = freader(fp,dtype=np.int16,count=waveInfo['numSamples'])
-            if waveTmp.size:
-                waveArr[ich,ievt,:] = waveTmp
-            _ = freader(fp,dtype=np.uint32,count=1)
+    if method=='block':
+        waveArr = np.empty((num_evts_read,waveInfo['numChannels'],waveInfo['numSamples']+6),dtype=np.int16)
+        # waveArr.transpose((1,0,2)) swaps the first two dimensions but leaves the third in place
+        # transpose doesn't touch the data array, only the shape and strides.  But the above is now
+        # neither C-continuous nor F-continuous
+        waveArr.ravel('K')[:] = freader(fp, dtype=np.int16, count=waveArr.size)
+        waveArr = waveArr[:,:,4:-2]
+        waveArr = np.transpose(waveArr,axes=(1,0,2))
+    elif method=='normal':
+        waveArr = np.empty((waveInfo['numChannels'],num_evts_read,waveInfo['numSamples']),dtype=np.int16)
+        for ievt in range(num_evts_read):
+            for ich in range(waveInfo['numChannels']):
+                _ = freader(fp,dtype=np.uint32,count=2)
+                waveTmp = freader(fp,dtype=np.int16,count=waveInfo['numSamples'])
+                if waveTmp.size:
+                    waveArr[ich,ievt,:] = waveTmp
+                _ = freader(fp,dtype=np.uint32,count=1)
+    else:
+        raise ValueError("I don't understand your method")
     return waveArr, waveInfo
 
-def Read_DDC10_fName(fName, start_event=0, num_events=-1):
+def Read_DDC10_fName(fName, start_event=0, num_events=-1, method='normal'):
     """
     Read waveform data and metadata from a binary file from the DDC10.
     File given by input 'fName' must be in the format produced by the DDC10.  It CAN be gzipped.
@@ -146,6 +162,6 @@ def Read_DDC10_fName(fName, start_event=0, num_events=-1):
     openner = gzip.open if gzipStatus else open
     
     with openner(fName0,'rb') as ff:
-        waveArr, waveInfo = Read_DDC10_fHandle(ff, start_event=start_event, num_events=num_events)
+        waveArr, waveInfo = Read_DDC10_fHandle(ff, start_event=start_event, num_events=num_events, method=method)
     waveInfo.update({'filename':fName0})
     return waveArr, waveInfo

@@ -8,6 +8,10 @@ def _exp_filt(freq, bw):
     g_out = np.exp(-freq*np.log(2)/bw)
     return g_out
 
+def _gauss_filt(freq, bw):
+    g_out = np.exp(-(freq**2)*np.log(2)/(bw**2))
+    return g_out
+
 def _lowpass_util(y, bw, axis=-1, filt_func=_RC_n_filt, **kwargs):
     assert isinstance(y, np.ndarray), "y must be a numpy array"
     assert y.ndim in (1,2), "Input y must be 1d or 2d"
@@ -20,6 +24,9 @@ def _lowpass_util(y, bw, axis=-1, filt_func=_RC_n_filt, **kwargs):
     Y_filt = Y * gain
     y_out = np.fft.irfft(Y_filt, axis=axis)
     return y_out
+
+def lowpass_gauss(y, bw, axis=-1):
+    return _lowpass_util(y, bw, axis=axis, filt_func=_gauss_filt)
 
 def lowpass_RC(y, bw, n=1, axis=-1):
     """
