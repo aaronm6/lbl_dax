@@ -26,6 +26,15 @@ Py_ssize_t py_ssize_t_max(Py_ssize_t a, Py_ssize_t b) {
 	return b;
 }
 
+long get_axis(long axis_in, npy_intp ndim) {
+	// C's mod arithmatic works differently than python's.
+	// python: -1 % 3 = 2
+	//      C: -1 % 3 = -1
+	// if axis is -1 and ndim is 3, then axis should be 2.  Easy
+	// in python, but requires more steps in C.
+	return (long)((ndim + ((npy_intp)axis_in % ndim)) % ndim);
+}
+
 void exp_filt_row(PyObject *args) {
 	PyObject *nd_s, *nd_f;
 	double t0; // the decay constant of the exp filter, in units of samples
