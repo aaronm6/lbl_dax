@@ -26,72 +26,13 @@ Py_ssize_t py_ssize_t_max(Py_ssize_t a, Py_ssize_t b) {
 	return b;
 }
 
-PyArrayObject *slice_1d(PyObject *array, long idx, long axis) {
-	// This aux function takes a 2d array and produces a new view to its data
-	// which is a slice along the specified axis.  The slice object can be 
-	// incremented with the function `next_idx`.  For example, if a slice is
-	// created along axis=1, it will look like a 1d array that is the first row
-	// of the parent 2d array.  Applying next_idx will mean that the same slice
-	// object will then represent the second row.
-	//
-	// axis=0 means: slice off a column
-	// axis=1 means: slice off a row
-	PyArrayObject *n_array;
-	int ndim_i = PyArray_NDIM(array);
-	npy_intp *dims_i = PyArray_DIMS(array);
-	npy_intp *strides_i = PyArray_STRIDES(array);
-	//npy_intp ndim_s = 1;
-	npy_intp ndim_s = intp_max(ndim_i - 1,1);
-	npy_intp dims_s[] = {dims_i[axis]};
-	npy_intp strides_s[] = {strides_i[axis]};
-	
-	Py_INCREF(PyArray_DESCR(array));
-	
-	n_array = (PyArrayObject *)PyArray_NewFromDescr(
-		&PyArray_Type,
-		PyArray_DESCR(array),
-		ndim_s,
-		dims_s,
-		strides_s,
-		PyArray_DATA(array) + idx * strides_i[1-axis],
-		PyArray_FLAGS(array),
-		(PyObject *)array);
-	
-	//n_array->base = ((PyArrayObject *)array)->base ? ((PyArrayObject *)array)->base : array;
-	/* 
-	 Technically, the base of an array needs to be the array that owns the data, which might
-	 not be 'array' (if 'array' was built from another object).  So for example:
-	 >>> a0 = np.array([0,1,2,3,4,5]) # i.e. 1d
-	 >>> a = a.reshape((2,3)) # i.e. 2d, 2 rows, 3 columns: [[0,1,2],[3,4,5]]
-	 >>> b = slice1d(a, 1, axis=1) # b = [3,4,5] 1d
-	 In the above, a's base is a0, and also b's base SHOULD also be a0, since a0 owns the data.
-	 But in these functions, we need to be able to access the dimensions of the most-recent 
-	 parent from which b was sliced, so we set 'a' as the base of b (even though 'a' 
-	 doesn't own its data).
-	*/
-	n_array->base = array;
-	Py_INCREF(n_array->base);
-	
-	return n_array;
-}
-void next_idx(PyArrayObject *sl_r, long axis) {
-	// sl_r should have been produced as a 1d slice, e.g. from slice_1d above
-	// axis=0 means: sl_r is a row of the 2d base array. next_idx will point to the next row.
-	// axis=1 means: sl_r is a column of the 2d base array. next_idx will point to the next column.
-	// The incrementing wraps around so one should never be pointing to memory outside the base
-	// array's data.
-	if (!(sl_r->base)) {
-		PyErr_SetString(PyExc_ValueError, "Only a 1d view of a 2d array can be incremented");
-	}
-	int ndim_base = PyArray_NDIM(sl_r->base);
-	npy_intp *dims_base = PyArray_DIMS(sl_r->base);
-	npy_intp *strides_base = PyArray_STRIDES(sl_r->base);
-	void *base_data = PyArray_DATA(sl_r->base);
-	
-	npy_intp current_slice = (npy_intp)(PyArray_DATA(sl_r) - PyArray_DATA(sl_r->base)) / 
-		strides_base[1-axis];
-	npy_intp next_slice = (current_slice + 1) % dims_base[1-axis]; // wrap around if at the end.
-	sl_r->data = base_data + next_slice * strides_base[1-axis];
+long get_axis(long axis_in, npy_intp ndim) {
+	// C's mod arithmatic works differently than python's.
+	// python: -1 % 3 = 2
+	//      C: -1 % 3 = -1
+	// if axis is -1 and ndim is 3, then axis should be 2.  Easy
+	// in python, but requires more steps in C.
+	return (long)((ndim + ((npy_intp)axis_in % ndim)) % ndim);
 }
 
 void exp_filt_row(PyObject *args) {
@@ -367,28 +308,18 @@ void find_peaks_row(PyObject *args) {
 }
 
 void rowbyrow_optargs(void (*f)(PyObject *args), PyObject *nd_i, PyObject *nd_o, long axis, PyObject *optargs) {
-	// rowbyrow takes in a 1d or 2d array and passes it to a processing function specified by
-	// input 'f', which itself takes in only a 1d array.  If rowbyrow is given a 2d array, it 
-	// will feed individual rows (axis=1) or columns (axis=0) to 'f' and return a 2d array of
-	// the same size as the input.  This way, the processing function 'f' only has to worry about
-	// working on a 1d array, and does not have to worry about navigating multiple dimensions.
-	// 
-	// This function needs to take in the input array (1 or 2d) AND the output array.
-	// Also it needs the axis, to know which axis to break off 1d slices (row, by
-	// default, i.e. axis=1).  For avebox, n (box size) would go in optargs (a tuple)
-	if (axis < -1) {
-		PyErr_SetString(PyExc_ValueError, "Optional input 'axis' must be an integer greater than -1");
-	}
 	int ndim = PyArray_NDIM(nd_i);
 	npy_intp *dims = PyArray_DIMS(nd_i);
 	Py_ssize_t optarg_length = PyTuple_Size(optargs);
 	PyObject *passargs = PyTuple_New(2 + py_ssize_t_max(optarg_length, 0));
 	for (int i=0; i<py_ssize_t_max(optarg_length, 0); i++) {
-		PyTuple_SetItem(passargs, i+2, PyTuple_GetItem(optargs,i));
+		PyTuple_SetItem(passargs, i+2, PyTuple_GetItem(optargs, i));
 	}
 	
-	if (optarg_length > 0){
-		Py_INCREF(PyTuple_GetItem(optargs, 0)); // needed because the above tuple packing doesn't incref n.
+	long raxis = get_axis(axis, ndim);
+	
+	if (optarg_length > 0) {
+		Py_INCREF(PyTuple_GetItem(optargs, 0)); //needed because the above tuple packing doesn't incref n
 	}
 	if (ndim == 1) {
 		PyTuple_SetItem(passargs, 0, nd_i);
@@ -400,18 +331,61 @@ void rowbyrow_optargs(void (*f)(PyObject *args), PyObject *nd_i, PyObject *nd_o,
 		Py_DECREF(nd_i);
 		Py_DECREF(nd_o);
 	} else {
-		PyArrayObject *sl_i = slice_1d(nd_i, 0L, axis);
-		PyArrayObject *sl_o = slice_1d(nd_o, 0L, axis);
-		PyTuple_SetItem(passargs, 0, (PyObject *)sl_i);
-		PyTuple_SetItem(passargs, 1, (PyObject *)sl_o);
-		for (npy_intp i=0; i<dims[1-axis]; i++) {
-			f(passargs);
-			next_idx(sl_i, axis);
-			next_idx(sl_o, axis);
+		PyObject *slice_full = PySlice_New(NULL, NULL, NULL);
+		PyObject *slices_1d = PyTuple_New(ndim);
+		PyObject *slices_nd = PyTuple_New(ndim);
+		for (int k=0; k<ndim; k++) {
+			if (k == raxis) {
+				PyTuple_SetItem(slices_1d, k, slice_full);
+				PyTuple_SetItem(slices_nd, k, PyLong_FromLong(0));
+			} else {
+				PyTuple_SetItem(slices_1d, k, PyLong_FromLong(0));
+				PyTuple_SetItem(slices_nd, k, slice_full);
+			}
 		}
-		//Py_DECREF(sl_i);
-		//Py_DECREF(sl_o);
+		
+		PyArrayObject *aslice_row_i = (PyArrayObject *)PyObject_GetItem(nd_i, slices_1d);
+		PyArrayObject *aslice_mat_i = (PyArrayObject *)PyObject_GetItem(nd_i, slices_nd);
+		PyArrayObject *aslice_row_o = (PyArrayObject *)PyObject_GetItem(nd_o, slices_1d);
+		PyArrayObject *aslice_mat_o = (PyArrayObject *)PyObject_GetItem(nd_o, slices_nd);
+		PyTuple_SetItem(passargs, 0, (PyObject *)aslice_row_i);
+		PyTuple_SetItem(passargs, 1, (PyObject *)aslice_row_o);
+		
+		NpyIter *iter_i, *iter_o;
+		NpyIter_IterNextFunc *iternext_i, *iternext_o;
+		char **dataptr_i, **dataptr_o;
+		
+		iter_i = NpyIter_New(aslice_mat_i, NPY_ITER_READONLY,
+			NPY_CORDER, NPY_NO_CASTING, NULL);
+		iter_o = NpyIter_New(aslice_mat_o, NPY_ITER_READONLY,
+			NPY_CORDER, NPY_NO_CASTING, NULL);
+		
+		iternext_i = NpyIter_GetIterNext(iter_i, NULL);
+		iternext_o = NpyIter_GetIterNext(iter_o, NULL);
+		if (iternext_i == NULL) {
+			NpyIter_Deallocate(iter_i);
+		}
+		if (iternext_o == NULL) {
+			NpyIter_Deallocate(iter_o);
+		}
+		
+		dataptr_i = NpyIter_GetDataPtrArray(iter_i);
+		dataptr_o = NpyIter_GetDataPtrArray(iter_o);
+		char *data_i, *data_o;
+		do {
+			data_i = *dataptr_i;
+			data_o = *dataptr_o;
+			aslice_row_i->data = (void *)data_i;
+			aslice_row_o->data = (void *)data_o;
+			f(passargs);
+			iternext_o(iter_o);
+		} while(iternext_i(iter_i));
+		
+		NpyIter_Deallocate(iter_i);
+		NpyIter_Deallocate(iter_o);
 		Py_DECREF(passargs);
+		Py_DECREF(aslice_mat_i);
+		Py_DECREF(aslice_mat_o);
 		Py_DECREF(nd_i);
 		Py_DECREF(nd_o);
 	}
@@ -548,6 +522,12 @@ static PyObject *meth_forwardconv(PyObject *self, PyObject *args, PyObject *kwar
 	Py_DECREF(nd_kern);
 	Py_DECREF(nd_kern);
 	return nd_f;
+}
+
+static PyObject *meth_printbranch(PyObject *self, PyObject *Py_UNUSED(args)) {
+	printf("data_nd_array branch\n");
+	fflush(stdout);
+	Py_RETURN_NONE;
 }
 
 static PyObject *meth_find_peaks(PyObject *self, PyObject *args, PyObject *kwargs) {
@@ -688,11 +668,17 @@ PyDoc_STRVAR(
 	"Find n peaks above threshold.  Returns a dict whose keys describe "
 	"different reduced quantities of each found pulse.");
 
+PyDoc_STRVAR(
+	printbranch__doc__,
+	"printbranch()\n--\n\n"
+	"Prints the [hard-coded] name of the test branch.");
+
 static PyMethodDef ldax_methods[] = {
 	{"avebox", (PyCFunction)meth_avebox,METH_VARARGS|METH_KEYWORDS, avebox__doc__},
 	{"exp_filt",(PyCFunction)meth_exp_filt,METH_VARARGS|METH_KEYWORDS, exp_filt__doc__},
 	{"find_peaks",(PyCFunction)meth_find_peaks,METH_VARARGS|METH_KEYWORDS, find_peaks__doc__},
 	{"forwardconv",(PyCFunction)meth_forwardconv,METH_VARARGS|METH_KEYWORDS, forwardconv__doc__},
+	{"printbranch",meth_printbranch,METH_NOARGS,printbranch__doc__},
 	{NULL, NULL, 0, NULL}
 };
 
