@@ -525,7 +525,7 @@ static PyObject *meth_forwardconv(PyObject *self, PyObject *args, PyObject *kwar
 }
 
 static PyObject *meth_printbranch(PyObject *self, PyObject *Py_UNUSED(args)) {
-	printf("data_nd_array branch\n");
+	printf("main branch\n");
 	fflush(stdout);
 	Py_RETURN_NONE;
 }
