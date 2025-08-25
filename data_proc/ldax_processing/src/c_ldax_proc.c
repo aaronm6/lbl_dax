@@ -524,6 +524,12 @@ static PyObject *meth_forwardconv(PyObject *self, PyObject *args, PyObject *kwar
 	return nd_f;
 }
 
+static PyObject *meth_printbranch(PyObject *self, PyObject *Py_UNUSED(args)) {
+	printf("data_nd_array branch\n");
+	fflush(stdout);
+	Py_RETURN_NONE;
+}
+
 static PyObject *meth_find_peaks(PyObject *self, PyObject *args, PyObject *kwargs) {
 	static char *keywords[] = {"", "axis", "n", "thresh", NULL};
 	PyArrayObject *nd_i;
@@ -662,11 +668,17 @@ PyDoc_STRVAR(
 	"Find n peaks above threshold.  Returns a dict whose keys describe "
 	"different reduced quantities of each found pulse.");
 
+PyDoc_STRVAR(
+	printbranch__doc__,
+	"printbranch()\n--\n\n"
+	"Prints the [hard-coded] name of the test branch.");
+
 static PyMethodDef ldax_methods[] = {
 	{"avebox", (PyCFunction)meth_avebox,METH_VARARGS|METH_KEYWORDS, avebox__doc__},
 	{"exp_filt",(PyCFunction)meth_exp_filt,METH_VARARGS|METH_KEYWORDS, exp_filt__doc__},
 	{"find_peaks",(PyCFunction)meth_find_peaks,METH_VARARGS|METH_KEYWORDS, find_peaks__doc__},
 	{"forwardconv",(PyCFunction)meth_forwardconv,METH_VARARGS|METH_KEYWORDS, forwardconv__doc__},
+	{"printbranch",meth_printbranch,METH_NOARGS,printbranch__doc__},
 	{NULL, NULL, 0, NULL}
 };
 
