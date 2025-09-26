@@ -533,7 +533,7 @@ static PyObject *meth_printbranch(PyObject *self, PyObject *Py_UNUSED(args)) {
 static PyObject *meth_find_peaks(PyObject *self, PyObject *args, PyObject *kwargs) {
 	static char *keywords[] = {"", "axis", "n", "thresh", NULL};
 	PyArrayObject *nd_i;
-	long axis=1L;
+	long axis=-1;
 	long n=1L;
 	double thresh=0.;
 	if (!PyArg_ParseTupleAndKeywords(args, kwargs, "O&|lld", keywords,
