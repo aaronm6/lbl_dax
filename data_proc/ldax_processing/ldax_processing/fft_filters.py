@@ -19,7 +19,7 @@ def _gauss_filt(freq, bw):
 
 def _lowpass_util(y, bw, axis=-1, filt_func=_RC_n_filt, **kwargs):
     assert isinstance(y, np.ndarray ), "y must be a numpy array"
-    assert y.ndim in (1,2), "Input y must be 1d or 2d"
+    #assert y.ndim in (1,2), "Input y must be 1d or 2d"
     
     Y = np.fft.rfft(y, axis=axis)
     freq = np.r_[0:0.5:(1j)*Y.shape[axis]]

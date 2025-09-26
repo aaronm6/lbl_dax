@@ -470,7 +470,7 @@ static PyObject *meth_avebox(PyObject *self, PyObject *args, PyObject *kwargs) {
 	PyArrayObject *nd_s;
 	//PyObject *n;
 	long n=1;
-	long axis=1;
+	long axis=-1;
 	if (!PyArg_ParseTupleAndKeywords(args, kwargs, "O&|ll", keywords,
 		PyArray_Converter, &nd_s,
 		&n,
