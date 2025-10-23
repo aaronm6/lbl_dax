@@ -123,7 +123,7 @@ def Read_DDC40_fHandle(fp, start_event=0, num_events=-1):
             fp, 
             dtype=np.int16, 
             count=waveInfo['num_channels']*waveInfo['num_samples']
-        ).reshape(waveInfo['num_channels'],waveinfo['num_samples'])
+        ).reshape(waveInfo['num_channels'],waveInfo['num_samples'])
     
     waveInfo['trig_timestamp'] = trig_timestamp
     waveInfo['trig_seq_num'] = trig_seq_num
