@@ -24,7 +24,6 @@ def gz_fromfile(fHandle, dtype=float, count=-1, offset=-1):
     # Read the specified data into a bytes buffer
     # In np.fromfile, size is the number of ITEMS of dtype, NOT bytes
     dtype_size = np.dtype(dtype).itemsize
-    print(f'size requested: {count*dtype_size}')
     data_buff = fHandle.read(size=count*dtype_size)
     return np.frombuffer(data_buff, dtype=dtype)
 
@@ -97,11 +96,9 @@ def Read_DDC40_fHandle(fp, start_event=0, num_events=-1):
     # more events than are in the file
     num_evts_read = waveInfo['num_events_in_file'] if num_events==-1 else num_events
     num_evts_read = min(num_evts_read, (waveInfo['num_events_in_file']-start_event))
-    print(f'{num_evts_read = }')
     waveInfo['num_events_read'] = num_evts_read
     
     # Move to the position of the first event that you want to read
-    print(f'{start_event = }')
     fp.seek(start_event*event_size_bytes,1)
     
     # Initialize the arrays that holds the waveform data and event-header data
@@ -111,10 +108,7 @@ def Read_DDC40_fHandle(fp, start_event=0, num_events=-1):
     waveforms = np.empty((num_evts_read, waveInfo['num_channels'], waveInfo['num_samples']), dtype=np.int16)
     
     # loop through events and fill the arrays
-    #for k in trange(num_evts_read, desc="Reading file", leave=False):
-    print('Entering event loop')
-    for k in range(num_evts_read):
-        print(f'{k = }')
+    for k in trange(num_evts_read, desc="Reading file", leave=False):
         trig_timestamp[k], = freader(fp, dtype=np.uint64, count=1)
         trig_seq_num[k], = freader(fp, dtype=np.uint32, count=1)
         ch_hit_vector[k], = freader(fp, dtype=np.uint64, count=1)
