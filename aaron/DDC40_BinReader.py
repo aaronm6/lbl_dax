@@ -97,7 +97,7 @@ def Read_DDC40_fHandle(fp, start_event=0, num_events=-1):
     # more events than are in the file
     num_evts_read = waveInfo['num_events_in_file'] if num_events==-1 else num_events
     num_evts_read = min(num_evts_read, (waveInfo['num_events_in_file']-start_event))
-    
+    print(f'{num_evts_read = }')
     waveInfo['num_events_read'] = num_evts_read
     
     # Move to the position of the first event that you want to read
@@ -111,6 +111,7 @@ def Read_DDC40_fHandle(fp, start_event=0, num_events=-1):
     
     # loop through events and fill the arrays
     for k in trange(num_evts_read, desc="Reading file", leave=False):
+        print(f'{k = }')
         trig_timestamp[k], = freader(fp, dtype=np.uint64)
         trig_seq_num[k], = freader(fp, dtype=np.uint32)
         ch_hit_vector[k], = freader(fp, dtype=np.uint64)
