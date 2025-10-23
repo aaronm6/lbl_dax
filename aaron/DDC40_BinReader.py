@@ -94,8 +94,8 @@ def Read_DDC40_fHandle(fp, start_event=0, num_events=-1):
     
     # determine how many events to read and make sure we're not trying to read
     # more events than are in the file
-    num_evts_read = waveInfo['num_events'] if num_events==-1 else num_events
-    num_evts_read = min(num_evts_read, (waveInfo['num_events']-start_event))
+    num_evts_read = waveInfo['num_events_in_file'] if num_events==-1 else num_events
+    num_evts_read = min(num_evts_read, (waveInfo['num_events_in_file']-start_event))
     
     waveInfo['num_events_read'] = num_evts_read
     
