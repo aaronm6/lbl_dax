@@ -89,7 +89,7 @@ def Read_DDC40_fHandle(fp, start_event=0, num_events=-1):
         waveforms:      int16 * num_samples * num_channels
     """
     event_size_bytes = \
-        np.dtype(np.uint64).itemsize + np.dtype(np.uint32).itemsize + np.dtype(uint64.itemsize + \
+        np.dtype(np.uint64).itemsize + np.dtype(np.uint32).itemsize + np.dtype(uint64).itemsize + \
         waveInfo['num_channels'] * waveInfo['num_samples'] * np.dtype(np.int16).itemsize
     
     # determine how many events to read and make sure we're not trying to read
