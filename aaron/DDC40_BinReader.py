@@ -24,6 +24,7 @@ def gz_fromfile(fHandle, dtype=float, count=-1, offset=-1):
     # Read the specified data into a bytes buffer
     # In np.fromfile, size is the number of ITEMS of dtype, NOT bytes
     dtype_size = np.dtype(dtype).itemsize
+    print(f'size requested: {count*dtype_size}')
     data_buff = fHandle.read(size=count*dtype_size)
     return np.frombuffer(data_buff, dtype=dtype)
 
