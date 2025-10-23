@@ -115,9 +115,9 @@ def Read_DDC40_fHandle(fp, start_event=0, num_events=-1):
     print('Entering event loop')
     for k in range(num_evts_read):
         print(f'{k = }')
-        trig_timestamp[k], = freader(fp, dtype=np.uint64)
-        trig_seq_num[k], = freader(fp, dtype=np.uint32)
-        ch_hit_vector[k], = freader(fp, dtype=np.uint64)
+        trig_timestamp[k], = freader(fp, dtype=np.uint64, count=1)
+        trig_seq_num[k], = freader(fp, dtype=np.uint32, count=1)
+        ch_hit_vector[k], = freader(fp, dtype=np.uint64, count=1)
         
         waveforms[k,...] = freader(
             fq, 
