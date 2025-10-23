@@ -101,6 +101,7 @@ def Read_DDC40_fHandle(fp, start_event=0, num_events=-1):
     waveInfo['num_events_read'] = num_evts_read
     
     # Move to the position of the first event that you want to read
+    print(f'{start_event = }')
     fp.seek(start_event*event_size_bytes,1)
     
     # Initialize the arrays that holds the waveform data and event-header data
@@ -110,7 +111,9 @@ def Read_DDC40_fHandle(fp, start_event=0, num_events=-1):
     waveforms = np.empty((num_evts_read, waveInfo['num_channels'], waveInfo['num_samples']), dtype=np.int16)
     
     # loop through events and fill the arrays
-    for k in trange(num_evts_read, desc="Reading file", leave=False):
+    #for k in trange(num_evts_read, desc="Reading file", leave=False):
+    print('Entering event loop')
+    for k in range(num_evts_read):
         print(f'{k = }')
         trig_timestamp[k], = freader(fp, dtype=np.uint64)
         trig_seq_num[k], = freader(fp, dtype=np.uint32)
