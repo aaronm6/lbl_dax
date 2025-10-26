@@ -89,13 +89,14 @@ def Read_DDC40_fHandle(fp, start_event=0, num_events=-1):
         waveforms:      int16 * num_samples * num_channels
     """
     event_size_bytes = \
-        np.dtype(np.uint64).itemsize + np.dtype(np.uint32).itemsize + np.dtype(np.uint64).itemsize + \
+        np.dtype(np.uint64).itemsize + np.dtype(np.uint32).itemsize + np.dtype(uint64.itemsize + \
         waveInfo['num_channels'] * waveInfo['num_samples'] * np.dtype(np.int16).itemsize
     
     # determine how many events to read and make sure we're not trying to read
     # more events than are in the file
-    num_evts_read = waveInfo['num_events_in_file'] if num_events==-1 else num_events
-    num_evts_read = min(num_evts_read, (waveInfo['num_events_in_file']-start_event))
+    num_evts_read = waveInfo['num_events'] if num_events==-1 else num_events
+    num_evts_read = min(num_evts_read, (waveInfo['num_events']-start_event))
+    
     waveInfo['num_events_read'] = num_evts_read
     
     # Move to the position of the first event that you want to read
@@ -109,21 +110,22 @@ def Read_DDC40_fHandle(fp, start_event=0, num_events=-1):
     
     # loop through events and fill the arrays
     for k in trange(num_evts_read, desc="Reading file", leave=False):
-        trig_timestamp[k], = freader(fp, dtype=np.uint64, count=1)
-        trig_seq_num[k], = freader(fp, dtype=np.uint32, count=1)
-        ch_hit_vector[k], = freader(fp, dtype=np.uint64, count=1)
+        trig_timestamp[k], = freader(fp, dtype=np.uint64)
+        trig_seq_num[k], = freader(fp, dtype=np.uint32)
+        ch_hit_vector[k], = freader(fp, dtype=np.uint64)
         
         waveforms[k,...] = freader(
-            fp, 
+            fq, 
             dtype=np.int16, 
             count=waveInfo['num_channels']*waveInfo['num_samples']
-        ).reshape(waveInfo['num_channels'],waveInfo['num_samples'])
+        ).reshape(waveInfo['num_channels'],waveinfo['num_samples'])
     
-    waveInfo['trig_timestamp'] = trig_timestamp
-    waveInfo['trig_seq_num'] = trig_seq_num
-    waveInfo['ch_hit_vector'] = ch_hit_vector
+    dataInfo = {}
+    dataInfo['trig_timestamp'] = trig_timestamp
+    dataInfo['trig_seq_num'] = trig_seq_num
+    dataInfo['ch_hit_vector'] = ch_hit_vector
     
-    return waveforms, waveInfo
+    return waveforms, dataInfo, waveInfo
 
 def Read_DDC40_fName(fName, start_event=0, num_events=-1):
     """
@@ -152,7 +154,17 @@ def Read_DDC40_fName(fName, start_event=0, num_events=-1):
     waveInfo.update({'filename':fName})
     return waveform, waveInfo
 
-
+def Read_DDC40_header(fName):
+    """
+    One might be just interested in getting info about the file without reading the whole
+    damn thing.  This just reads the header info and burps it out as a dict.
+    """
+    fName0 = os.path.expanduser(fName)
+    gzipStatus = is_gzipped(fName0)
+    openner = gzip.open if gzipStatus else open
+    with openner(fName0, 'rb') as ff:
+        waveInfo = Read_DDC40_metadata(ff)
+    return waveInfo
 
 
 
