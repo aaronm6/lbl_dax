@@ -141,7 +141,9 @@ def Read_DDC40_fName(fName, start_event=0, num_events=-1):
       waveforms: Waveform data.  Format: 3D numpy array of dype np.int16. The dimensions are:
                  (num_events x num_channels x num_samples)
                  where numSamples is the number of samples collected in a single event, single channel.
-       waveInfo: Meta data in the form of a dict object, includes timestamps and sequence numbers.
+       dataInfo: Arrays of timestamps, trigger sequence numbers, and ch hit vectors.  Read from the
+                 event headers.
+       waveInfo: Meta data in the form of a dict object, read from the file header.
     """
     fName0 = os.path.expanduser(fName)
     gzipStatus = is_gzipped(fName0)
