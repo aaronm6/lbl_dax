@@ -118,12 +118,12 @@ def Read_DDC40_fHandle(fp, start_event=0, num_events=-1):
             dtype=np.int16, 
             count=waveInfo['num_channels']*waveInfo['num_samples']
         ).reshape(waveInfo['num_channels'],waveInfo['num_samples'])
+    dataInfo = {}
+    dataInfo['trig_timestamp'] = trig_timestamp
+    dataInfo['trig_seq_num'] = trig_seq_num
+    dataInfo['ch_hit_vector'] = ch_hit_vector
     
-    waveInfo['trig_timestamp'] = trig_timestamp
-    waveInfo['trig_seq_num'] = trig_seq_num
-    waveInfo['ch_hit_vector'] = ch_hit_vector
-    
-    return waveforms, waveInfo
+    return waveforms, dataInfo, waveInfo
 
 def Read_DDC40_fName(fName, start_event=0, num_events=-1):
     """
@@ -148,12 +148,23 @@ def Read_DDC40_fName(fName, start_event=0, num_events=-1):
     openner = gzip.open if gzipStatus else open
     
     with openner(fName0, 'rb') as ff:
-        waveform, waveInfo = Read_DDC40_fHandle(ff, start_event=start_event, num_events=num_events)
+        waveform, dataInfo, waveInfo = Read_DDC40_fHandle(ff, start_event=start_event, num_events=num_events)
     waveInfo.update({'filename':fName})
-    return waveform, waveInfo
+    return waveform, dataInfo, waveInfo
 
-
-
+def Read_DDC40_Header(fName):
+    """
+    Sometimes you want to reader the file header without having to load the whole damn thing.
+    Returns a dict with the header info.
+    """
+    fName0 = os.path.expanduser(fName)
+    gzipStatus = is_gzipped(fName0)
+    openner = gzip.open if gzipStatus else open
+    
+    with openner(fName0, 'rb') as ff:
+        waveInfo = Read_DDC40_metadata(ff)
+    
+    return waveInfo
 
 
 
