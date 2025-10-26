@@ -17,6 +17,26 @@ def _gauss_filt(freq, bw):
     g_out = np.exp(-(freq**2)*np.log(2)/(bw**2)/2)
     return g_out
 
+def _neg_gauss_dd(freq, bw, n=None):
+    """
+    This comes from two derivatives of a negative gaussian.  bw here is 
+    1/sigma, with sigma in units of time samples.  So if the sampling 
+    interval is 10ns and sigma is 100ns, then bw is 0.1.
+    """
+    om = 2 * np.pi * freq
+    N = freq.shape[-1]
+    if n is None:
+        n = int(2*(N-1))
+    t_samp = 1 / (2*freq[-1])
+    t = t_samp * np.r_[:n].astype(float)
+    t0 = t[-1]/2
+    s1 = 1/bw
+    A = np.exp(0.5)/2/(s1**3) * 3 * t_samp #(3e-8)
+    y_out = A*((s1**2)-((t-t0)**2))*np.exp(-((t-t0)**2)/2/(s1**2))
+    Y_out = np.fft.rfft(y_out)
+    Y_out = Y_out * np.exp((1j)*om*t0)
+    return Y_out
+
 def _lowpass_util(y, bw, axis=-1, filt_func=_RC_n_filt, **kwargs):
     assert isinstance(y, np.ndarray ), "y must be a numpy array"
     #assert y.ndim in (1,2), "Input y must be 1d or 2d"
@@ -25,6 +45,10 @@ def _lowpass_util(y, bw, axis=-1, filt_func=_RC_n_filt, **kwargs):
     freq = np.r_[0:0.5:(1j)*Y.shape[axis]]
     if (axis==0) and (Y.ndim==2):
         freq = freq[:,np.newaxis]
+    # t_samp = 2*0.5 = 1 (in freq's units)
+    # t0 = 3 samples: exp(ift0/2pi)
+    # so multiply gain by exp(3ifreq/2/pi)
+    #gain = filt_func(freq, bw, **kwargs) * np.exp((1j)*100.*freq/2/np.pi)
     gain = filt_func(freq, bw, **kwargs)
     Y_filt = Y * gain
     y_out = np.fft.irfft(Y_filt, axis=axis)
@@ -76,6 +100,16 @@ def lowpass_exp(y, bw, axis=-1):
     """
     return _lowpass_util(y, bw, axis=axis, filt_func=_exp_filt)
 
+def lowpass_ngdd(y, bw, axis=-1):
+    """
+    Run over the data with a filter derived by taking the second derivative of the negative
+    of a gaussian function.  This filter kernel will have one main positive peak in the 
+    middle with two smaller negative peaks on either side.  The total area is zero.  This
+    filter kernel is good at finding pulses buried in noise, but might not be the best to
+    use for deriving the size of the pulse.
+    """
+    return _lowpass_util(y, bw, axis=axis, filt_func=_neg_gauss_dd, n=y.shape[axis])
+
 #forwardconv(s_raw, s_kern, axis=-1)\n--\n\n"
 def forwardconv_fft(s_raw, s_kern, axis=-1):
     """
@@ -92,6 +126,7 @@ def forwardconv_fft(s_raw, s_kern, axis=-1):
     F_fc = S_raw * (S_kern_broadcast.conjugate())
     f_fc = np.fft.irfft(F_fc)
     return f_fc
+
 
 
 
