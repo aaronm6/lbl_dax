@@ -48,8 +48,8 @@ def _lowpass_util(y, bw, axis=-1, filt_func=_RC_n_filt, **kwargs):
     # t_samp = 2*0.5 = 1 (in freq's units)
     # t0 = 3 samples: exp(ift0/2pi)
     # so multiply gain by exp(3ifreq/2/pi)
-    #gain = filt_func(freq, bw, **kwargs) * np.exp((1j)*100.*freq/2/np.pi)
-    gain = filt_func(freq, bw, **kwargs)
+    gain = filt_func(freq, bw, **kwargs) * np.exp((1j)*100.*freq/2/np.pi)
+    #gain = filt_func(freq, bw, **kwargs)
     Y_filt = Y * gain
     y_out = np.fft.irfft(Y_filt, axis=axis)
     return y_out
