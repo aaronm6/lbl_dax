@@ -3,6 +3,12 @@ import numpy as np
 def _RC_n_filt(freq, bw, n=1):
     a = np.sqrt((2**(1/n))-1)
     g_out = (1/((1j)*freq*a/bw+1))**n
+    g_out = g_out * np.exp((1j)*100.*freq/2/np.pi)
+    return g_out
+
+def _RC_n_highpass_filt(freq, bw, n=1):
+    a = np.sqrt(2**(1/n)-1)
+    g_out = (freq**n)/((freq-(1j)*bw*a)**n)
     return g_out
 
 def _exp_filt(freq, bw):
@@ -48,8 +54,8 @@ def _lowpass_util(y, bw, axis=-1, filt_func=_RC_n_filt, **kwargs):
     # t_samp = 2*0.5 = 1 (in freq's units)
     # t0 = 3 samples: exp(ift0/2pi)
     # so multiply gain by exp(3ifreq/2/pi)
-    gain = filt_func(freq, bw, **kwargs) * np.exp((1j)*100.*freq/2/np.pi)
-    #gain = filt_func(freq, bw, **kwargs)
+    #gain = filt_func(freq, bw, **kwargs) * np.exp((1j)*100.*freq/2/np.pi)
+    gain = filt_func(freq, bw, **kwargs)
     Y_filt = Y * gain
     y_out = np.fft.irfft(Y_filt, axis=axis)
     return y_out
@@ -81,6 +87,31 @@ def lowpass_RC(y, bw, n=1, axis=-1):
      y_filt: The filtered form of the dat in y.
     """
     return _lowpass_util(y, bw, axis=axis, filt_func=_RC_n_filt, n=n)
+
+def highpass_RC(y, bw, n=1, axis=-1):
+    """
+    Perform an n-pole RC-like high-pass filter of the data contained in y.
+    Inputs:
+          y: the 1d or 2d numpy array containing the time-series data to be filtered.
+         bw: The bandwidth of the filter, in units of 1/samples.  So if your sampling interval
+             were 10ns (i.e. 100 MS/s) and you wanted to implement a filter at 20 MHz, your
+             bw here would be 0.2.  Note that the bw is the frequency at which the gain
+             is 0.5.
+          n: The number of poles of the filter.  That is, n=1 means just a simple RC filter.
+             n=2 means there are two RC filters in series, etc.  Note that as n gets large,
+             the result of the filter approaches that of the exponential filter.  Also note
+             that if I just naively repeat an RC filter twice, the bandwidth of the new filter
+             is NOT 1/(2*pi*RC) anymore.  But here when n > 1, the bw parameter does still 
+             actually describe the true bandwidth of the filter (i.e. the frequency at which the
+             gain of the filter is sqrt(0.5).
+       axis: The axis over which the filter will be performed.  If axis=1, then each row is
+             treated as a separate waveform; if axis=0, then each column is treated as a 
+             separate waveform.  The default is axis=-1, which just means it would take the last
+             dimension (i.e. axis=1 if 2d).
+    Outputs:
+     y_filt: The filtered form of the dat in y.
+    """
+    return _lowpass_util(y, bw, axis=axis, filt_func=_RC_n_highpass_filt, n=n)
 
 def lowpass_exp(y, bw, axis=-1):
     """
