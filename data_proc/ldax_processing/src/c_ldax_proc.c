@@ -35,6 +35,206 @@ long get_axis(long axis_in, npy_intp ndim) {
 	return (long)((ndim + ((npy_intp)axis_in % ndim)) % ndim);
 }
 
+/* ----------------- <ROW-BY-ROW FUNCTIONS> ----------------- */
+
+void rowbyrow_optargs(void (*f)(PyObject *args), PyObject *nd_i, PyObject *nd_o, long axis, PyObject *optargs) {
+	int ndim = PyArray_NDIM(nd_i);
+	npy_intp *dims = PyArray_DIMS(nd_i);
+	Py_ssize_t optarg_length = PyTuple_Size(optargs);
+	PyObject *passargs = PyTuple_New(2 + py_ssize_t_max(optarg_length, 0));
+	for (int i=0; i<py_ssize_t_max(optarg_length, 0); i++) {
+		PyTuple_SetItem(passargs, i+2, PyTuple_GetItem(optargs, i));
+	}
+	
+	long raxis = get_axis(axis, ndim);
+	
+	if (optarg_length > 0) {
+		Py_INCREF(PyTuple_GetItem(optargs, 0)); //needed because the above tuple packing doesn't incref n
+	}
+	if (ndim == 1) {
+		PyTuple_SetItem(passargs, 0, nd_i);
+		PyTuple_SetItem(passargs, 1, nd_o);
+		Py_INCREF(nd_i);
+		Py_INCREF(nd_o);
+		f(passargs);
+		Py_DECREF(passargs);
+		Py_DECREF(nd_i);
+		Py_DECREF(nd_o);
+	} else {
+		PyObject *slice_full = PySlice_New(NULL, NULL, NULL);
+		PyObject *slices_1d = PyTuple_New(ndim);
+		PyObject *slices_nd = PyTuple_New(ndim);
+		for (int k=0; k<ndim; k++) {
+			if (k == raxis) {
+				PyTuple_SetItem(slices_1d, k, slice_full);
+				PyTuple_SetItem(slices_nd, k, PyLong_FromLong(0));
+			} else {
+				PyTuple_SetItem(slices_1d, k, PyLong_FromLong(0));
+				PyTuple_SetItem(slices_nd, k, slice_full);
+			}
+		}
+		
+		PyArrayObject *aslice_row_i = (PyArrayObject *)PyObject_GetItem(nd_i, slices_1d);
+		PyArrayObject *aslice_mat_i = (PyArrayObject *)PyObject_GetItem(nd_i, slices_nd);
+		PyArrayObject *aslice_row_o = (PyArrayObject *)PyObject_GetItem(nd_o, slices_1d);
+		PyArrayObject *aslice_mat_o = (PyArrayObject *)PyObject_GetItem(nd_o, slices_nd);
+		PyTuple_SetItem(passargs, 0, (PyObject *)aslice_row_i);
+		PyTuple_SetItem(passargs, 1, (PyObject *)aslice_row_o);
+		
+		NpyIter *iter_i, *iter_o;
+		NpyIter_IterNextFunc *iternext_i, *iternext_o;
+		char **dataptr_i, **dataptr_o;
+		
+		iter_i = NpyIter_New(aslice_mat_i, NPY_ITER_READONLY,
+			NPY_CORDER, NPY_NO_CASTING, NULL);
+		iter_o = NpyIter_New(aslice_mat_o, NPY_ITER_READONLY,
+			NPY_CORDER, NPY_NO_CASTING, NULL);
+		
+		iternext_i = NpyIter_GetIterNext(iter_i, NULL);
+		iternext_o = NpyIter_GetIterNext(iter_o, NULL);
+		if (iternext_i == NULL) {
+			NpyIter_Deallocate(iter_i);
+		}
+		if (iternext_o == NULL) {
+			NpyIter_Deallocate(iter_o);
+		}
+		
+		dataptr_i = NpyIter_GetDataPtrArray(iter_i);
+		dataptr_o = NpyIter_GetDataPtrArray(iter_o);
+		char *data_i, *data_o;
+		do {
+			data_i = *dataptr_i;
+			data_o = *dataptr_o;
+			aslice_row_i->data = (void *)data_i;
+			aslice_row_o->data = (void *)data_o;
+			f(passargs);
+			iternext_o(iter_o);
+		} while(iternext_i(iter_i));
+		
+		NpyIter_Deallocate(iter_i);
+		NpyIter_Deallocate(iter_o);
+		Py_DECREF(passargs);
+		Py_DECREF(aslice_mat_i);
+		Py_DECREF(aslice_mat_o);
+		Py_DECREF(nd_i);
+		Py_DECREF(nd_o);
+	}
+}
+
+void rowbyrow(void (*f)(PyObject *args), PyObject *nd_i, PyObject *nd_o, long axis) {
+	// this is an overloaded wrapper for the main function, which requires `optargs`
+	PyObject *optargs = PyTuple_New(0);
+	rowbyrow_optargs(f, nd_i, nd_o, axis, optargs);
+	Py_DECREF(optargs);
+}
+
+/* ----------------- <ARRAY ROW OPERATIONS> ----------------- */
+void ngdd_filt_mask_row(PyObject *args) {
+	// This takes the negative-gauss-double-derivative filter output, applies
+	// a threshold, then constructs pulse intervals of time based on that.  It handles
+	// overlaps fine, and returns a boolean array that is true where the pulse windows
+	// exist.
+	// The strategy is to find any point the filtered signal goes above threshold, find
+	// the points to the left and right where it then crosses zero.  The left boundary is
+	// that left zero-crossing point.  The right boundary is the right zero-crossing
+	// point plus a few samples (given by post_samples_add).
+	PyObject *nd_s, *nd_b;
+	double thresh;
+	long pre_samples_add;
+	long post_samples_add;
+	if (!PyArg_ParseTuple(args, "O&O&dll",
+		PyArray_Converter, &nd_s,
+		PyArray_Converter, &nd_b,
+		&thresh, &pre_samples_add, &post_samples_add)) {
+		PyErr_SetString(PyExc_ValueError, "Something went wrong with unpacking ngdd mask");
+	}
+	npy_intp numel_s = PyArray_SIZE(nd_s);
+	npy_intp numel_b = PyArray_SIZE(nd_b);
+	
+	if (numel_s != numel_b) {
+		PyErr_SetString(PyExc_IndexError, "Input and output rows must have the same length");
+	}
+	
+	npy_float64 *s_el;
+	npy_bool *b_el;
+	npy_intp k_p, k_pre;
+	for (npy_intp k=0; k<numel_s; k++) {
+		s_el = (npy_float64 *)PyArray_GETPTR1(nd_s, k);
+		b_el = (npy_bool *)PyArray_GETPTR1(nd_b, k);
+		if (*s_el >= thresh) {
+			k_p = k;
+			while ((*s_el > 0.) & (k_p >= 0)) {
+				//s_el = (npy_float64 *)PyArray_GETPTR1(nd_s, k_p);
+				//b_el = (npy_bool *)PyArray_GETPTR1(nd_b, k_p);
+				*b_el = NPY_TRUE;
+				k_p--;
+				s_el = (npy_float64 *)PyArray_GETPTR1(nd_s, k_p);
+				b_el = (npy_bool *)PyArray_GETPTR1(nd_b, k_p);
+			}
+			k_pre = 0;
+			while ((k_pre<pre_samples_add) & (k_p-k_pre>=0)) {
+				b_el = (npy_bool *)PyArray_GETPTR1(nd_b, k_p-k_pre);
+				*b_el = NPY_TRUE;
+				k_pre++;
+			}
+			s_el = (npy_float64 *)PyArray_GETPTR1(nd_s, k);
+			b_el = (npy_bool *)PyArray_GETPTR1(nd_b, k);
+			while ((*s_el > 0.) & (k < numel_s)) {
+				*b_el = NPY_TRUE;
+				k++;
+				s_el = (npy_float64 *)PyArray_GETPTR1(nd_s, k);
+				b_el = (npy_bool *)PyArray_GETPTR1(nd_b, k);
+			}
+			k_p = 0;
+			while ((k_p<post_samples_add) & (k_p+k < numel_s)) {
+				b_el = (npy_bool *)PyArray_GETPTR1(nd_b, k+k_p);
+				*b_el = NPY_TRUE;
+				k_p++;
+			}
+			k += k_p;
+		}
+	}
+}
+
+void merge_islands_row(PyObject *args) {
+	PyArrayObject *nd_b, *nd_v;
+	long width; // gap size (or smaller) that should be merged
+	if (!PyArg_ParseTuple(args, "O&O&l", 
+		PyArray_Converter, &nd_b, 
+		PyArray_Converter, &nd_v, 
+		&width)) {
+		PyErr_SetString(PyExc_ValueError, "Something went wrong unpacking inputs in merge_islands_row");
+	}
+	npy_intp numel = PyArray_SIZE(nd_b);
+	long k_counter = 0;
+	npy_bool gate = NPY_FALSE;
+	npy_bool *b_el = (npy_bool *)PyArray_GETPTR1(nd_b, 0);
+	npy_bool last = *b_el;
+	
+	for (long k=0; k<numel; k++) {
+		b_el = (npy_bool *)PyArray_GETPTR1(nd_b, k);
+		if ((last==NPY_TRUE) & (*b_el == NPY_FALSE)) {
+			gate = NPY_TRUE;
+		}
+		while ((gate==NPY_TRUE) & (k_counter<=(width+1)) & (*b_el==NPY_FALSE) & (k<numel)) {
+			b_el = (npy_bool *)PyArray_GETPTR1(nd_b, k);
+			k_counter++;
+			k++;
+		}
+		if ((gate==NPY_TRUE) & (k_counter <= (width+1)) & (k<numel)) {
+			*b_el = NPY_TRUE;
+		}
+		while ((gate==NPY_TRUE) & (k_counter <= (width+1)) & (k_counter>=0) & (k<numel)) {
+			k_counter--;
+			b_el = (npy_bool *)PyArray_GETPTR1(nd_b, k-k_counter-1);
+			*b_el = NPY_TRUE;
+		}
+		gate = NPY_FALSE;
+		k_counter = 0;
+		last = *b_el;
+	}
+}
+
 void exp_filt_row(PyObject *args) {
 	PyObject *nd_s, *nd_f;
 	double t0; // the decay constant of the exp filter, in units of samples
@@ -144,6 +344,49 @@ void avebox_row(PyObject *args) {
 	Py_DECREF(nd_s);
 	Py_DECREF(nd_f);
 }
+
+void forwardconv_row(PyObject *args) {
+	// nd_s is the initial signal
+	// nd_f is the filtered signal
+	// nd_kern is the kernal that will be used to filter
+	PyObject *nd_s, *nd_f, *nd_kern;
+	if (!PyArg_ParseTuple(args, "O&O&O&",
+		PyArray_Converter, &nd_s,
+		PyArray_Converter, &nd_f,
+		PyArray_Converter, &nd_kern)) {
+		PyErr_SetString(PyExc_ValueError, "Something went wrong with inputs unpacking in forwardfilt_row");
+	}
+	npy_intp numel = PyArray_SIZE(nd_s);
+	npy_intp numelf = PyArray_SIZE(nd_f);
+	if (numel != numelf) {
+		PyErr_SetString(PyExc_IndexError, "Input and output rows must have the same length");
+	}
+	npy_intp numel_kern = PyArray_SIZE(nd_kern);
+	if (numel_kern >= numel) {
+		PyErr_SetString(PyExc_IndexError, "Kernal cannot have more elements than the signal");
+	}
+	
+	npy_float64 *s_el, *f_el, *f_kern; // pointers to elements in the arrays
+	npy_float64 f_sum = 0.;
+	npy_intp n_left; // this will tell us how many elements there are left in the signal array
+	
+	for (npy_intp i_s=0; i_s<numel; i_s++) {
+		n_left = numel - i_s;
+		f_sum = 0.;
+		for (npy_intp i_k=0; i_k<intp_min(numel_kern,n_left); i_k++) {
+			s_el = (npy_float64 *)PyArray_GETPTR1(nd_s, i_s+i_k);
+			f_kern = (npy_float64 *)PyArray_GETPTR1(nd_kern, i_k);
+			f_sum += *s_el * *f_kern;
+		}
+		f_el = (npy_float64 *)PyArray_GETPTR1(nd_f, i_s);
+		*f_el = f_sum;
+	}
+	
+	Py_DECREF(nd_s);
+	Py_DECREF(nd_f);
+	Py_DECREF(nd_kern);
+}
+
 void find_peaks_row(PyObject *args) {
 	PyObject *nd_i, *nd_o;
 	double p_thresh;
@@ -307,96 +550,6 @@ void find_peaks_row(PyObject *args) {
 	Py_DECREF(nd_o);
 }
 
-void rowbyrow_optargs(void (*f)(PyObject *args), PyObject *nd_i, PyObject *nd_o, long axis, PyObject *optargs) {
-	int ndim = PyArray_NDIM(nd_i);
-	npy_intp *dims = PyArray_DIMS(nd_i);
-	Py_ssize_t optarg_length = PyTuple_Size(optargs);
-	PyObject *passargs = PyTuple_New(2 + py_ssize_t_max(optarg_length, 0));
-	for (int i=0; i<py_ssize_t_max(optarg_length, 0); i++) {
-		PyTuple_SetItem(passargs, i+2, PyTuple_GetItem(optargs, i));
-	}
-	
-	long raxis = get_axis(axis, ndim);
-	
-	if (optarg_length > 0) {
-		Py_INCREF(PyTuple_GetItem(optargs, 0)); //needed because the above tuple packing doesn't incref n
-	}
-	if (ndim == 1) {
-		PyTuple_SetItem(passargs, 0, nd_i);
-		PyTuple_SetItem(passargs, 1, nd_o);
-		Py_INCREF(nd_i);
-		Py_INCREF(nd_o);
-		f(passargs);
-		Py_DECREF(passargs);
-		Py_DECREF(nd_i);
-		Py_DECREF(nd_o);
-	} else {
-		PyObject *slice_full = PySlice_New(NULL, NULL, NULL);
-		PyObject *slices_1d = PyTuple_New(ndim);
-		PyObject *slices_nd = PyTuple_New(ndim);
-		for (int k=0; k<ndim; k++) {
-			if (k == raxis) {
-				PyTuple_SetItem(slices_1d, k, slice_full);
-				PyTuple_SetItem(slices_nd, k, PyLong_FromLong(0));
-			} else {
-				PyTuple_SetItem(slices_1d, k, PyLong_FromLong(0));
-				PyTuple_SetItem(slices_nd, k, slice_full);
-			}
-		}
-		
-		PyArrayObject *aslice_row_i = (PyArrayObject *)PyObject_GetItem(nd_i, slices_1d);
-		PyArrayObject *aslice_mat_i = (PyArrayObject *)PyObject_GetItem(nd_i, slices_nd);
-		PyArrayObject *aslice_row_o = (PyArrayObject *)PyObject_GetItem(nd_o, slices_1d);
-		PyArrayObject *aslice_mat_o = (PyArrayObject *)PyObject_GetItem(nd_o, slices_nd);
-		PyTuple_SetItem(passargs, 0, (PyObject *)aslice_row_i);
-		PyTuple_SetItem(passargs, 1, (PyObject *)aslice_row_o);
-		
-		NpyIter *iter_i, *iter_o;
-		NpyIter_IterNextFunc *iternext_i, *iternext_o;
-		char **dataptr_i, **dataptr_o;
-		
-		iter_i = NpyIter_New(aslice_mat_i, NPY_ITER_READONLY,
-			NPY_CORDER, NPY_NO_CASTING, NULL);
-		iter_o = NpyIter_New(aslice_mat_o, NPY_ITER_READONLY,
-			NPY_CORDER, NPY_NO_CASTING, NULL);
-		
-		iternext_i = NpyIter_GetIterNext(iter_i, NULL);
-		iternext_o = NpyIter_GetIterNext(iter_o, NULL);
-		if (iternext_i == NULL) {
-			NpyIter_Deallocate(iter_i);
-		}
-		if (iternext_o == NULL) {
-			NpyIter_Deallocate(iter_o);
-		}
-		
-		dataptr_i = NpyIter_GetDataPtrArray(iter_i);
-		dataptr_o = NpyIter_GetDataPtrArray(iter_o);
-		char *data_i, *data_o;
-		do {
-			data_i = *dataptr_i;
-			data_o = *dataptr_o;
-			aslice_row_i->data = (void *)data_i;
-			aslice_row_o->data = (void *)data_o;
-			f(passargs);
-			iternext_o(iter_o);
-		} while(iternext_i(iter_i));
-		
-		NpyIter_Deallocate(iter_i);
-		NpyIter_Deallocate(iter_o);
-		Py_DECREF(passargs);
-		Py_DECREF(aslice_mat_i);
-		Py_DECREF(aslice_mat_o);
-		Py_DECREF(nd_i);
-		Py_DECREF(nd_o);
-	}
-}
-
-void rowbyrow(void (*f)(PyObject *args), PyObject *nd_i, PyObject *nd_o, long axis) {
-	// this is an overloaded wrapper for the main function, which requires `optargs`
-	PyObject *optargs = PyTuple_New(0);
-	rowbyrow_optargs(f, nd_i, nd_o, axis, optargs);
-	Py_DECREF(optargs);
-}
 
 /* ----------------- <MODULE FUNCTIONS> ----------------- */
 static PyObject *meth_exp_filt(PyObject *self, PyObject *args, PyObject *kwargs) {
@@ -423,46 +576,68 @@ static PyObject *meth_exp_filt(PyObject *self, PyObject *args, PyObject *kwargs)
 	return nd_f;
 }
 
-void forwardconv_row(PyObject *args) {
-	// nd_s is the initial signal
-	// nd_f is the filtered signal
-	// nd_kern is the kernal that will be used to filter
-	PyObject *nd_s, *nd_f, *nd_kern;
-	if (!PyArg_ParseTuple(args, "O&O&O&",
+//ngdd_filt_mask_row
+static PyObject *meth_ngdd_filt_mask(PyObject *self, PyObject *args, PyObject *kwargs) {
+	static char *keywords[] = {"","thresh","pre_samples_add","post_samples_add","axis", NULL};
+	PyArrayObject *nd_s;
+	npy_double thresh = 8.;
+	long pre_samples_add = 0;
+	long post_samples_add = 10;
+	long axis=-1;
+	if (!PyArg_ParseTupleAndKeywords(args, kwargs, "O&|dlll", keywords,
 		PyArray_Converter, &nd_s,
-		PyArray_Converter, &nd_f,
-		PyArray_Converter, &nd_kern)) {
-		PyErr_SetString(PyExc_ValueError, "Something went wrong with inputs unpacking in forwardfilt_row");
+		&thresh,
+		&pre_samples_add,
+		&post_samples_add,
+		&axis)) {
+		return NULL;
 	}
-	npy_intp numel = PyArray_SIZE(nd_s);
-	npy_intp numelf = PyArray_SIZE(nd_f);
-	if (numel != numelf) {
-		PyErr_SetString(PyExc_IndexError, "Input and output rows must have the same length");
+	if (PyArray_TYPE(nd_s) != NPY_FLOAT64) {
+		PyErr_SetString(PyExc_TypeError, "Input array 's_raw' must be of dtype numpy.float64");
 	}
-	npy_intp numel_kern = PyArray_SIZE(nd_kern);
-	if (numel_kern >= numel) {
-		PyErr_SetString(PyExc_IndexError, "Kernal cannot have more elements than the signal");
-	}
+	//	npy_intp numel_s = PyArray_SIZE(nd_s);
+	//npy_intp numel = PyArray_SIZE(nd_s);
+	int ndim = PyArray_NDIM(nd_s);
+	npy_intp *dims = PyArray_DIMS(nd_s);
+	PyObject *nd_b = PyArray_ZEROS(ndim, dims, NPY_BOOL, 0);
 	
-	npy_float64 *s_el, *f_el, *f_kern; // pointers to elements in the arrays
-	npy_float64 f_sum = 0.;
-	npy_intp n_left; // this will tell us how many elements there are left in the signal array
-	
-	for (npy_intp i_s=0; i_s<numel; i_s++) {
-		n_left = numel - i_s;
-		f_sum = 0.;
-		for (npy_intp i_k=0; i_k<intp_min(numel_kern,n_left); i_k++) {
-			s_el = (npy_float64 *)PyArray_GETPTR1(nd_s, i_s+i_k);
-			f_kern = (npy_float64 *)PyArray_GETPTR1(nd_kern, i_k);
-			f_sum += *s_el * *f_kern;
-		}
-		f_el = (npy_float64 *)PyArray_GETPTR1(nd_f, i_s);
-		*f_el = f_sum;
-	}
-	
+	PyObject *optargs = PyTuple_Pack(
+		3, 
+		PyFloat_FromDouble(thresh), 
+		PyLong_FromLong(pre_samples_add),
+		PyLong_FromLong(post_samples_add));
+	Py_INCREF(nd_s);
+	Py_INCREF(nd_b);
+	rowbyrow_optargs(ngdd_filt_mask_row, (PyObject *)nd_s, nd_b, axis, optargs);
 	Py_DECREF(nd_s);
-	Py_DECREF(nd_f);
-	Py_DECREF(nd_kern);
+	Py_DECREF(optargs);
+	
+	return nd_b;
+}
+
+static PyObject *meth_merge_islands(PyObject *self, PyObject *args, PyObject *kwargs) {
+	static char *keywords[] = {"", "width", "axis", NULL};
+	PyArrayObject *nd_b;
+	long width=10;
+	long axis=-1;
+	if (!PyArg_ParseTupleAndKeywords(args, kwargs, "O&|ll", keywords,
+		PyArray_Converter, &nd_b,
+		&width, &axis)) {
+		return NULL;
+	}
+	if ((long)PyArray_TYPE(nd_b) != NPY_BOOL) {
+		PyErr_SetString(PyExc_TypeError, "merge_islands can only accept boolean arrays");
+	}
+	PyObject *nd_x = PyArray_NewLikeArray(nd_b, NPY_ANYORDER, NULL, 0);
+	PyObject *optargs = PyTuple_Pack(1, PyLong_FromLong(width));
+	Py_INCREF(nd_b);
+	Py_INCREF(nd_x);
+	rowbyrow_optargs(merge_islands_row, (PyObject *)nd_b, nd_x, axis, optargs);
+	Py_DECREF(nd_b);
+	Py_DECREF(nd_x);
+	Py_DECREF(optargs);
+	
+	Py_RETURN_NONE;
 }
 
 static PyObject *meth_avebox(PyObject *self, PyObject *args, PyObject *kwargs) {
@@ -673,12 +848,41 @@ PyDoc_STRVAR(
 	"printbranch()\n--\n\n"
 	"Prints the [hard-coded] name of the test branch.");
 
+PyDoc_STRVAR(
+	ngdd_filt__doc__,
+	"ngdd_filt_mask(s_in, thresh=8., pre_samples_add=0, post_samples_add=10, axis=-1)\n--\n\n"
+	"Take the filtered result of a multidimensional array of raw data and\n"
+	"return a boolean array (of the same dimensions) that is True where a\n"
+	"sample is within a pulse window and False otherwise.\n"
+	"Inputs:\n"
+	"  s_in: filtered data in.\n"
+	"  thresh: threshold over which to find pulses\n"
+	"  pre_samples_add: beginning of the pulse is extended by this many samples\n"
+	"  post_samples_add: the tail of the pulse is extended by this many samples\n"
+	"  axis: axis of s_in that constitutes individual channels and events.");
+
+PyDoc_STRVAR(
+	merge_islands__doc__,
+	"merge_islands(b_in, width=10, axis=-1)\n--\n\n"
+	"An 'island' is a series of Trues in a boolean area surrounded by Falses.\n"
+	"If two islands are separated by a less than a certain amount, then the\n"
+	"Falses between them are set to true, i.e. the islands are merged.\n"
+	"Inputs:\n"
+	"b_in: boolean array, multidimensional\n"
+	"width: (int) If two islands are separated by this number of elements or\n"
+	"       fewer, then the two islands will be merged.\n"
+	"axis: (int) The axis of b_in that is considered a row (default: last axis\n"
+	"\n"
+	"Returns: nothing (acts on the input boolean array in place)");
+
 static PyMethodDef ldax_methods[] = {
 	{"avebox", (PyCFunction)meth_avebox,METH_VARARGS|METH_KEYWORDS, avebox__doc__},
 	{"exp_filt",(PyCFunction)meth_exp_filt,METH_VARARGS|METH_KEYWORDS, exp_filt__doc__},
 	{"find_peaks",(PyCFunction)meth_find_peaks,METH_VARARGS|METH_KEYWORDS, find_peaks__doc__},
 	{"forwardconv",(PyCFunction)meth_forwardconv,METH_VARARGS|METH_KEYWORDS, forwardconv__doc__},
 	{"printbranch",meth_printbranch,METH_NOARGS,printbranch__doc__},
+	{"ngdd_filt_mask",(PyCFunction)meth_ngdd_filt_mask, METH_VARARGS|METH_KEYWORDS, ngdd_filt__doc__},
+	{"merge_islands",(PyCFunction)meth_merge_islands, METH_VARARGS|METH_KEYWORDS, merge_islands__doc__},
 	{NULL, NULL, 0, NULL}
 };
 
