@@ -36,6 +36,140 @@ long get_axis(long axis_in, npy_intp ndim) {
 }
 
 /* ----------------- <ROW-BY-ROW FUNCTIONS> ----------------- */
+PyObject *rowbyrow_list(
+	PyObject* (*f)(PyObject *args), 
+	PyArrayObject *nd_i, 
+	long axis, 
+	PyObject *aux_arrays, 
+	PyObject *optargs) {
+	
+	Py_INCREF(nd_i);
+	int ndim = PyArray_NDIM(nd_i);
+	/*if (ndim > 2) {
+		PyErr_SetString(PyExc_ValueError, "Main array must be 1d or 2d");
+	}*/
+	
+	npy_intp *dims = PyArray_DIMS(nd_i);
+	
+	Py_ssize_t auxarr_length = py_ssize_t_max(PyTuple_Size(aux_arrays), 0);
+	Py_ssize_t optarg_length = py_ssize_t_max(PyTuple_Size(optargs), 0);
+	
+	PyObject *passargs = PyTuple_New(1 + auxarr_length + optarg_length);
+	
+	PyObject *temp_item;
+	for (int k=0; k<optarg_length; k++) {
+		temp_item = PyTuple_GetItem(optargs, k);
+		Py_INCREF(temp_item);
+		PyTuple_SetItem(passargs, 1+auxarr_length+k, temp_item);
+	}
+	
+	long raxis = get_axis(axis, ndim);
+	
+	npy_intp dims_prod = 1;
+	for (int i=0; i<ndim; i++) {
+		if (i != raxis) {
+			dims_prod *= dims[i];
+		}
+	}
+	PyObject *big_list;
+	if (ndim == 1) {
+		Py_INCREF(nd_i);
+		PyTuple_SetItem(passargs, 0, (PyObject *)nd_i);
+		for (int k=0; k<auxarr_length; k++) {
+			temp_item = PyTuple_GetItem(aux_arrays, k);
+			Py_INCREF(temp_item);
+			PyTuple_SetItem(passargs, 1+k, temp_item);
+		}
+		big_list = f(passargs);
+	} else {
+		big_list = PyList_New(dims_prod);
+		PyObject *slice_full = PySlice_New(NULL, NULL, NULL);
+		PyObject *slices_1d = PyTuple_New(ndim);
+		PyObject *slices_nd = PyTuple_New(ndim);
+		for (int k=0; k<ndim; k++) {
+			Py_INCREF(slice_full);
+			if (k == raxis) {
+				PyTuple_SetItem(slices_1d, k, slice_full);
+				PyTuple_SetItem(slices_nd, k, PyLong_FromLong(0));
+			} else {
+				PyTuple_SetItem(slices_1d, k, PyLong_FromLong(0));
+				PyTuple_SetItem(slices_nd, k, slice_full);
+			}
+		}
+		
+		PyArrayObject *aslice_rows[1 + auxarr_length];
+		PyArrayObject *aslice_mats[1 + auxarr_length];
+		
+		aslice_rows[0] = (PyArrayObject *)PyObject_GetItem((PyObject *)nd_i, slices_1d);
+		aslice_mats[0] = (PyArrayObject *)PyObject_GetItem((PyObject *)nd_i, slices_nd);
+		Py_INCREF(aslice_rows[0]);
+		PyTuple_SetItem(passargs, 0, (PyObject *)aslice_rows[0]);
+		
+		PyObject *temp_aux;
+		for (int i=0; i<auxarr_length; i++) {
+			temp_aux = PyTuple_GetItem(aux_arrays, i);
+			aslice_rows[i+1] = (PyArrayObject *)PyObject_GetItem(temp_aux, slices_1d);
+			Py_INCREF(aslice_rows[i+1]);
+			PyTuple_SetItem(passargs, i+1, (PyObject *)aslice_rows[i+1]);
+			aslice_mats[i+1] = (PyArrayObject *)PyObject_GetItem(temp_aux, slices_nd);
+		}
+		
+		// Initialize and create array of numpy iterators
+		NpyIter *iters[1+auxarr_length];
+		for (int i=0; i<(1+auxarr_length); i++) {
+			iters[i] = NpyIter_New(aslice_mats[i], NPY_ITER_READONLY, NPY_CORDER, NPY_NO_CASTING, NULL);
+		}
+		
+		// Initialize and create array of iterator-next functions
+		NpyIter_IterNextFunc *iternexts[1+auxarr_length];
+		for (int i=0; i<(1+auxarr_length); i++) {
+			iternexts[i] = NpyIter_GetIterNext(iters[i], NULL);
+			if (iternexts[i] == NULL) {
+				printf("NULL ITERATOR--------------------\n");
+				NpyIter_Deallocate(iters[i]);
+			}
+		}
+		
+		// Initialize and create array of data-pointer arrays
+		char **dataptrs[1+auxarr_length];
+		for (int i=0; i<(auxarr_length+1); i++) {
+			dataptrs[i] = NpyIter_GetDataPtrArray(iters[i]);
+		}
+		
+		// Initialize array of data pointers (which will access the data as iterator iterates)
+		char *datas[1+auxarr_length];
+		
+		// Iterate over the arrays and pass slices to the given lrow function
+		PyObject *row_list;
+		long k=0L;
+		do {
+			for (int i=0; i<(1+auxarr_length); i++) {
+				datas[i] = *dataptrs[i];
+				aslice_rows[i]->data = (void *)datas[i];
+			}
+			row_list = f(passargs);
+			PyList_SetItem(big_list, k, row_list);
+			// PyList_SetItem steals the reference, so we should not decref row_list
+			//Py_DECREF(row_list);
+			k++;
+		} while (all_iters(1+auxarr_length, iters, iternexts));
+		
+		for (npy_intp i=0; i<(1+auxarr_length); i++) {
+			NpyIter_Deallocate(iters[i]);
+		}
+		
+		Py_DECREF(slices_1d);
+		Py_DECREF(slices_nd);
+		Py_DECREF(slice_full);
+		for (int i=0; i<(1+auxarr_length); i++) {
+			Py_DECREF(aslice_rows[i]);
+			Py_DECREF(aslice_mats[i]);
+		}
+	}
+	Py_DECREF(nd_i);
+	Py_DECREF(passargs);
+	return big_list;
+}
 
 void rowbyrow_optargs(void (*f)(PyObject *args), PyObject *nd_i, PyObject *nd_o, long axis, PyObject *optargs) {
 	int ndim = PyArray_NDIM(nd_i);
@@ -126,6 +260,39 @@ void rowbyrow(void (*f)(PyObject *args), PyObject *nd_i, PyObject *nd_o, long ax
 	PyObject *optargs = PyTuple_New(0);
 	rowbyrow_optargs(f, nd_i, nd_o, axis, optargs);
 	Py_DECREF(optargs);
+}
+
+/* ----------------- <ARRAY LROW OPERATIONS> ----------------- */
+PyObject *describe_peaks_lrow(PyObject *args) {
+	PyArrayObject *nd_i, *nd_b; // nd_i is the vector that will get integrated, nd_b is the bool with windows
+	
+	if (!PyArg_ParseTuple(args, "O&O&", PyArray_Converter, &nd_i, &nd_b)) {
+		PyErr_SetString(PyExc_ValueError, "Something went wrong unpacking vars in describe_peaks_lrow");
+	}
+	npy_intp numel_i = PyArray_SIZE(nd_i);
+	npy_intp numel_b = PyArray_SIZE(nd_b);
+	if (numel_i != numel_b) {
+		PyErr_SetString(PyExc_ValueError, "Data vector and bool vector must have the same size");
+	}
+	npy_float64 *i_el, *b_el;
+}
+PyObject *first_last_lrow(PyObject *args) {
+	// Just take a 1d array and return a 2-element list object with the first and last el.
+	PyArrayObject *nd_i;
+	if (!PyArg_ParseTuple(args, "O&", PyArray_Converter, &nd_i)) {
+		PyErr_SetString(PyExc_ValueError, "Something went wrong with row unpacking");
+	}
+	npy_intp numel = PyArray_SIZE(nd_i);
+	
+	npy_float64 *i_el;
+	
+	PyObject *out_list = PyList_New(2);
+	i_el = (npy_float64 *)PyArray_GETPTR1(nd_i, 0);
+	PyList_SetItem(out_list, 0, PyFloat_FromDouble(*i_el));
+	i_el = (npy_float64 *)PyArray_GETPTR1(nd_i, numel-1);
+	PyList_SetItem(out_list, 1, PyFloat_FromDouble(*i_el));
+	
+	return out_list;
 }
 
 /* ----------------- <ARRAY ROW OPERATIONS> ----------------- */
