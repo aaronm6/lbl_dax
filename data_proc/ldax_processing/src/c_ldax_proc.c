@@ -36,6 +36,19 @@ long get_axis(long axis_in, npy_intp ndim) {
 }
 
 /* ----------------- <ROW-BY-ROW FUNCTIONS> ----------------- */
+int all_iters(int num_iters, NpyIter **iter_arr, NpyIter_IterNextFunc **next_arr) {
+	// When there are multiple iterators and one wishes to iterate over
+	// them simultaneously, the iterators (and their NextFunc's) can be
+	// each put into an array and this function will tackle them all
+	// at once.  It returns 1 if they all are still active, or 0 if
+	// any are finished.
+	int all = 1;
+	for (int k=0; k<num_iters; k++) {
+		all *= next_arr[k](iter_arr[k]);
+	}
+	return all;
+}
+
 PyObject *rowbyrow_list(
 	PyObject* (*f)(PyObject *args), 
 	PyArrayObject *nd_i, 
