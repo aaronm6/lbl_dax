@@ -5,290 +5,128 @@
 #include <numpy/npy_math.h>
 #include <math.h>
 
+#include "rowbyrow_funcs.h"
+
 /* ----------------- <AUX FUNCTIONS> ----------------- */
-npy_intp intp_max(npy_intp a, npy_intp b) {
-	if (a > b) {
-		return a;
+PyObject *split_rowlist(PyObject *row_list) {
+	// Takes something that was produced following get_pulse_quantities (given a
+	// 2d array of waveforms) and produce a dict of numpy arrays.
+	// These arrays are intended to be used to construct varrays.
+	// For example, we may have 2 waveforms: the first waveform has one pulse
+	// of pulse area 100. and pulse height 10.  The second waveform has two pulses
+	// of pulse areas (200,220) and pulse heights (20,22).  The output of rowbyrow_list
+	// will be: 
+	//       [[(100., 10.)], [(200., 20.), (220., 22.)]].
+	// We want to turn this into data arrays and a single shape arrays (i.e. the inputs
+	// to varray's constructor).
+	// pA_darray = np.array([100., 200., 220.])
+	// pH_darray = np.array([10., 20., 22.])
+	// sarray = np.array([1, 2])
+	// This function takes that nested list above and produces a dict of arrays.
+	//
+	// The pulse quantities provided, and their order, is hard coded here to match
+	// what has been produced by get_pulse_quantities_lrow.
+	// Currently it is:
+	//   pulse_start, pulse_max, pulse_stop, pulse_area, pulse_height);
+	printf("::: 00-- row_list's refcount: %li\n", Py_REFCNT(row_list));
+	
+	char *rq_names[] = {"p_start","p_max","p_stop","p_area","p_height", NULL};
+	int rq_types[] = {NPY_INT64, NPY_INT64, NPY_INT64, NPY_FLOAT64, NPY_FLOAT64, -1};
+	
+	int num_rqs = 0;
+	while (rq_names[num_rqs] != NULL) {
+		num_rqs++;
 	}
-	return b;
-}
-npy_intp intp_min(npy_intp a, npy_intp b) {
-	if (a < b) {
-		return a;
+	
+	Py_ssize_t num_events = PyList_Size(row_list);
+	
+	// Determine how many pulses there are:
+	Py_ssize_t num_pulses = 0;
+	//int row_size[num_events];
+	int sarray_ndim = 1;
+	npy_intp sarray_dims[1];
+	sarray_dims[0] = num_events;
+	PyObject *sarray = PyArray_EMPTY(sarray_ndim, sarray_dims, NPY_LONG, NPY_CORDER);
+	npy_int64 *i_sarray;
+	PyObject *evt_list;
+	for (int i=0; i<num_events; i++) {
+		evt_list = PyList_GetItem(row_list, i);
+		num_pulses += PyList_Size(evt_list);
+		//row_size[i] = PyList_Size(evt_list);
+		i_sarray = (npy_int64 *)PyArray_GETPTR1(sarray, i);
+		*i_sarray = PyList_Size(evt_list);
 	}
-	return b;
-}
-
-Py_ssize_t py_ssize_t_max(Py_ssize_t a, Py_ssize_t b) {
-	if (a > b) {
-		return a;
+	
+	PyObject *out_dict = PyDict_New();
+	//int r;
+	PyObject *rq_array;
+	int ndim = 1;
+	npy_intp dims[1];
+	dims[0] = num_pulses;
+	
+	// initialize the npyarrays and put them into the dict
+	for (int i=0; i<num_rqs; i++) {
+		rq_array = PyArray_EMPTY(ndim, dims, rq_types[i], NPY_CORDER);
+		//r = PyDict_SetItemString(out_dict, rq_names[i], rq_array);
+		PyDict_SetItemString(out_dict, rq_names[i], rq_array);
+		Py_DECREF(rq_array);
 	}
-	return b;
+	
+	Py_ssize_t array_index=0;
+	PyObject *pls_tuple; // tuple that will hold the per-pulse info
+	PyObject *rq;
+	npy_float64 *i_el_float;
+	npy_int64 *i_el_int;
+	// Fill the arrays.
+	// Loop over events
+	for (Py_ssize_t i_evt=0; i_evt<num_events; i_evt++) {
+		// first, get the number of pulses
+		i_sarray = (npy_int64 *)PyArray_GETPTR1(sarray, i_evt);
+		// get the event list
+		evt_list = PyList_GetItem(row_list, i_evt);
+		// loop over pulses within the event i_evt
+		for (Py_ssize_t i_pls=0; i_pls<*i_sarray; i_pls++) {
+			pls_tuple = PyList_GetItem(evt_list, i_pls);
+			// now loop over RQ
+			for (Py_ssize_t i_rq=0; i_rq<num_rqs; i_rq++) {
+				rq = PyTuple_GetItem(pls_tuple, i_rq);
+				rq_array = PyDict_GetItemString(out_dict, rq_names[i_rq]);
+				if (rq_types[i_rq] == NPY_FLOAT64) {
+					i_el_float = (npy_float64 *)PyArray_GETPTR1(rq_array, array_index);
+					*i_el_float = PyFloat_AsDouble(rq);
+				} else {
+					i_el_int = (npy_int64 *)PyArray_GETPTR1(rq_array, array_index);
+					*i_el_float = PyLong_AsLong(rq);
+				}
+			}
+			array_index++;
+		}
+		
+	}
+	PyDict_SetItemString(out_dict, "sarray", sarray);
+	Py_DECREF(sarray);
+	
+	printf("::: 01-- row_list's refcount: %li\n", Py_REFCNT(row_list));
+	
+	Py_DECREF(evt_list);
+	/* list of PyObjects created here, except out_dict:
+	sarray
+	evt_list
+	rq_array
+	pls_tuple
+	rq
+	*/
+	printf("::: end --    sarray: %li\n", Py_REFCNT(sarray));
+	printf("::: end --  evt_list: %li\n", Py_REFCNT(sarray));
+	printf("::: end --  rq_array: %li\n", Py_REFCNT(sarray));
+	printf("::: end -- pls_tuple: %li\n", Py_REFCNT(sarray));
+	printf("::: end --        rq: %li\n", Py_REFCNT(sarray));
+	
+	return out_dict;
 }
-
-long get_axis(long axis_in, npy_intp ndim) {
-	// C's mod arithmatic works differently than python's.
-	// python: -1 % 3 = 2
-	//      C: -1 % 3 = -1
-	// if axis is -1 and ndim is 3, then axis should be 2.  Easy
-	// in python, but requires more steps in C.
-	return (long)((ndim + ((npy_intp)axis_in % ndim)) % ndim);
-}
-
 /* ----------------- <ROW-BY-ROW FUNCTIONS> ----------------- */
-int all_iters(int num_iters, NpyIter **iter_arr, NpyIter_IterNextFunc **next_arr) {
-	// When there are multiple iterators and one wishes to iterate over
-	// them simultaneously, the iterators (and their NextFunc's) can be
-	// each put into an array and this function will tackle them all
-	// at once.  It returns 1 if they all are still active, or 0 if
-	// any are finished.
-	int all = 1;
-	for (int k=0; k<num_iters; k++) {
-		all *= next_arr[k](iter_arr[k]);
-	}
-	return all;
-}
-
-PyObject *rowbyrow_list(
-	PyObject* (*f)(PyObject *args), 
-	PyArrayObject *nd_i, 
-	long axis, 
-	PyObject *aux_arrays, 
-	PyObject *optargs) {
-	
-	Py_INCREF(nd_i);
-	int ndim = PyArray_NDIM(nd_i);
-	/*if (ndim > 2) {
-		PyErr_SetString(PyExc_ValueError, "Main array must be 1d or 2d");
-	}*/
-	
-	npy_intp *dims = PyArray_DIMS(nd_i);
-	
-	Py_ssize_t auxarr_length = py_ssize_t_max(PyTuple_Size(aux_arrays), 0);
-	Py_ssize_t optarg_length = py_ssize_t_max(PyTuple_Size(optargs), 0);
-	
-	PyObject *passargs = PyTuple_New(1 + auxarr_length + optarg_length);
-	
-	PyObject *temp_item;
-	for (int k=0; k<optarg_length; k++) {
-		temp_item = PyTuple_GetItem(optargs, k);
-		Py_INCREF(temp_item);
-		PyTuple_SetItem(passargs, 1+auxarr_length+k, temp_item);
-	}
-	
-	long raxis = get_axis(axis, ndim);
-	
-	npy_intp dims_prod = 1;
-	for (int i=0; i<ndim; i++) {
-		if (i != raxis) {
-			dims_prod *= dims[i];
-		}
-	}
-	PyObject *big_list;
-	if (ndim == 1) {
-		Py_INCREF(nd_i);
-		PyTuple_SetItem(passargs, 0, (PyObject *)nd_i);
-		for (int k=0; k<auxarr_length; k++) {
-			temp_item = PyTuple_GetItem(aux_arrays, k);
-			Py_INCREF(temp_item);
-			PyTuple_SetItem(passargs, 1+k, temp_item);
-		}
-		big_list = f(passargs);
-	} else {
-		big_list = PyList_New(dims_prod);
-		PyObject *slice_full = PySlice_New(NULL, NULL, NULL);
-		PyObject *slices_1d = PyTuple_New(ndim);
-		PyObject *slices_nd = PyTuple_New(ndim);
-		for (int k=0; k<ndim; k++) {
-			Py_INCREF(slice_full);
-			if (k == raxis) {
-				PyTuple_SetItem(slices_1d, k, slice_full);
-				PyTuple_SetItem(slices_nd, k, PyLong_FromLong(0));
-			} else {
-				PyTuple_SetItem(slices_1d, k, PyLong_FromLong(0));
-				PyTuple_SetItem(slices_nd, k, slice_full);
-			}
-		}
-		
-		PyArrayObject *aslice_rows[1 + auxarr_length];
-		PyArrayObject *aslice_mats[1 + auxarr_length];
-		
-		aslice_rows[0] = (PyArrayObject *)PyObject_GetItem((PyObject *)nd_i, slices_1d);
-		aslice_mats[0] = (PyArrayObject *)PyObject_GetItem((PyObject *)nd_i, slices_nd);
-		Py_INCREF(aslice_rows[0]);
-		PyTuple_SetItem(passargs, 0, (PyObject *)aslice_rows[0]);
-		
-		PyObject *temp_aux;
-		for (int i=0; i<auxarr_length; i++) {
-			temp_aux = PyTuple_GetItem(aux_arrays, i);
-			aslice_rows[i+1] = (PyArrayObject *)PyObject_GetItem(temp_aux, slices_1d);
-			Py_INCREF(aslice_rows[i+1]);
-			PyTuple_SetItem(passargs, i+1, (PyObject *)aslice_rows[i+1]);
-			aslice_mats[i+1] = (PyArrayObject *)PyObject_GetItem(temp_aux, slices_nd);
-		}
-		
-		// Initialize and create array of numpy iterators
-		NpyIter *iters[1+auxarr_length];
-		for (int i=0; i<(1+auxarr_length); i++) {
-			iters[i] = NpyIter_New(aslice_mats[i], NPY_ITER_READONLY, NPY_CORDER, NPY_NO_CASTING, NULL);
-		}
-		
-		// Initialize and create array of iterator-next functions
-		NpyIter_IterNextFunc *iternexts[1+auxarr_length];
-		for (int i=0; i<(1+auxarr_length); i++) {
-			iternexts[i] = NpyIter_GetIterNext(iters[i], NULL);
-			if (iternexts[i] == NULL) {
-				printf("NULL ITERATOR--------------------\n");
-				NpyIter_Deallocate(iters[i]);
-			}
-		}
-		
-		// Initialize and create array of data-pointer arrays
-		char **dataptrs[1+auxarr_length];
-		for (int i=0; i<(auxarr_length+1); i++) {
-			dataptrs[i] = NpyIter_GetDataPtrArray(iters[i]);
-		}
-		
-		// Initialize array of data pointers (which will access the data as iterator iterates)
-		char *datas[1+auxarr_length];
-		
-		// Iterate over the arrays and pass slices to the given lrow function
-		PyObject *row_list;
-		long k=0L;
-		do {
-			for (int i=0; i<(1+auxarr_length); i++) {
-				datas[i] = *dataptrs[i];
-				aslice_rows[i]->data = (void *)datas[i];
-			}
-			row_list = f(passargs);
-			PyList_SetItem(big_list, k, row_list);
-			// PyList_SetItem steals the reference, so we should not decref row_list
-			//Py_DECREF(row_list);
-			k++;
-		} while (all_iters(1+auxarr_length, iters, iternexts));
-		
-		for (npy_intp i=0; i<(1+auxarr_length); i++) {
-			NpyIter_Deallocate(iters[i]);
-		}
-		
-		Py_DECREF(slices_1d);
-		Py_DECREF(slices_nd);
-		Py_DECREF(slice_full);
-		for (int i=0; i<(1+auxarr_length); i++) {
-			Py_DECREF(aslice_rows[i]);
-			Py_DECREF(aslice_mats[i]);
-		}
-	}
-	Py_DECREF(nd_i);
-	Py_DECREF(passargs);
-	return big_list;
-}
-
-void rowbyrow_optargs(void (*f)(PyObject *args), PyObject *nd_i, PyObject *nd_o, long axis, PyObject *optargs) {
-	int ndim = PyArray_NDIM(nd_i);
-	npy_intp *dims = PyArray_DIMS(nd_i);
-	Py_ssize_t optarg_length = PyTuple_Size(optargs);
-	PyObject *passargs = PyTuple_New(2 + py_ssize_t_max(optarg_length, 0));
-	for (int i=0; i<py_ssize_t_max(optarg_length, 0); i++) {
-		PyTuple_SetItem(passargs, i+2, PyTuple_GetItem(optargs, i));
-	}
-	
-	long raxis = get_axis(axis, ndim);
-	
-	if (optarg_length > 0) {
-		Py_INCREF(PyTuple_GetItem(optargs, 0)); //needed because the above tuple packing doesn't incref n
-	}
-	if (ndim == 1) {
-		PyTuple_SetItem(passargs, 0, nd_i);
-		PyTuple_SetItem(passargs, 1, nd_o);
-		Py_INCREF(nd_i);
-		Py_INCREF(nd_o);
-		f(passargs);
-		Py_DECREF(passargs);
-		Py_DECREF(nd_i);
-		Py_DECREF(nd_o);
-	} else {
-		PyObject *slice_full = PySlice_New(NULL, NULL, NULL);
-		PyObject *slices_1d = PyTuple_New(ndim);
-		PyObject *slices_nd = PyTuple_New(ndim);
-		for (int k=0; k<ndim; k++) {
-			if (k == raxis) {
-				PyTuple_SetItem(slices_1d, k, slice_full);
-				PyTuple_SetItem(slices_nd, k, PyLong_FromLong(0));
-			} else {
-				PyTuple_SetItem(slices_1d, k, PyLong_FromLong(0));
-				PyTuple_SetItem(slices_nd, k, slice_full);
-			}
-		}
-		
-		PyArrayObject *aslice_row_i = (PyArrayObject *)PyObject_GetItem(nd_i, slices_1d);
-		PyArrayObject *aslice_mat_i = (PyArrayObject *)PyObject_GetItem(nd_i, slices_nd);
-		PyArrayObject *aslice_row_o = (PyArrayObject *)PyObject_GetItem(nd_o, slices_1d);
-		PyArrayObject *aslice_mat_o = (PyArrayObject *)PyObject_GetItem(nd_o, slices_nd);
-		PyTuple_SetItem(passargs, 0, (PyObject *)aslice_row_i);
-		PyTuple_SetItem(passargs, 1, (PyObject *)aslice_row_o);
-		
-		NpyIter *iter_i, *iter_o;
-		NpyIter_IterNextFunc *iternext_i, *iternext_o;
-		char **dataptr_i, **dataptr_o;
-		
-		iter_i = NpyIter_New(aslice_mat_i, NPY_ITER_READONLY,
-			NPY_CORDER, NPY_NO_CASTING, NULL);
-		iter_o = NpyIter_New(aslice_mat_o, NPY_ITER_READONLY,
-			NPY_CORDER, NPY_NO_CASTING, NULL);
-		
-		iternext_i = NpyIter_GetIterNext(iter_i, NULL);
-		iternext_o = NpyIter_GetIterNext(iter_o, NULL);
-		if (iternext_i == NULL) {
-			NpyIter_Deallocate(iter_i);
-		}
-		if (iternext_o == NULL) {
-			NpyIter_Deallocate(iter_o);
-		}
-		
-		dataptr_i = NpyIter_GetDataPtrArray(iter_i);
-		dataptr_o = NpyIter_GetDataPtrArray(iter_o);
-		char *data_i, *data_o;
-		do {
-			data_i = *dataptr_i;
-			data_o = *dataptr_o;
-			aslice_row_i->data = (void *)data_i;
-			aslice_row_o->data = (void *)data_o;
-			f(passargs);
-			iternext_o(iter_o);
-		} while(iternext_i(iter_i));
-		
-		NpyIter_Deallocate(iter_i);
-		NpyIter_Deallocate(iter_o);
-		Py_DECREF(passargs);
-		Py_DECREF(aslice_mat_i);
-		Py_DECREF(aslice_mat_o);
-		Py_DECREF(nd_i);
-		Py_DECREF(nd_o);
-	}
-}
-
-void rowbyrow(void (*f)(PyObject *args), PyObject *nd_i, PyObject *nd_o, long axis) {
-	// this is an overloaded wrapper for the main function, which requires `optargs`
-	PyObject *optargs = PyTuple_New(0);
-	rowbyrow_optargs(f, nd_i, nd_o, axis, optargs);
-	Py_DECREF(optargs);
-}
 
 /* ----------------- <ARRAY LROW OPERATIONS> ----------------- */
-PyObject *describe_peaks_lrow(PyObject *args) {
-	PyArrayObject *nd_i, *nd_b; // nd_i is the vector that will get integrated, nd_b is the bool with windows
-	
-	if (!PyArg_ParseTuple(args, "O&O&", PyArray_Converter, &nd_i, &nd_b)) {
-		PyErr_SetString(PyExc_ValueError, "Something went wrong unpacking vars in describe_peaks_lrow");
-	}
-	npy_intp numel_i = PyArray_SIZE(nd_i);
-	npy_intp numel_b = PyArray_SIZE(nd_b);
-	if (numel_i != numel_b) {
-		PyErr_SetString(PyExc_ValueError, "Data vector and bool vector must have the same size");
-	}
-	npy_float64 *i_el, *b_el;
-}
 PyObject *first_last_lrow(PyObject *args) {
 	// Just take a 1d array and return a 2-element list object with the first and last el.
 	PyArrayObject *nd_i;
@@ -307,6 +145,83 @@ PyObject *first_last_lrow(PyObject *args) {
 	
 	return out_list;
 }
+
+PyObject *get_pulse_quantities_lrow(PyObject *args) {
+	Py_ssize_t args_len = PyTuple_Size(args);
+	
+	PyArrayObject *nd_i, *nd_b;
+	nd_i = (PyArrayObject *)PyTuple_GetItem(args, 0);
+	nd_b = (PyArrayObject *)PyTuple_GetItem(args, 1);
+	npy_intp num_samp_baseline_avg = 0L;
+	if (args_len > 2) {
+		num_samp_baseline_avg = PyLong_AsLong(PyTuple_GetItem(args, 2));
+	}
+		
+	npy_intp num_i = PyArray_SIZE(nd_i);
+	npy_intp num_b = PyArray_SIZE(nd_b);
+	if (num_i != num_b) {
+		PyErr_SetString(PyExc_ValueError, "input data and binary array must have the same length.");
+	}
+	
+	npy_float64 *i_el;
+	npy_bool *b_el;
+	npy_float64 pulse_area = 0.;
+	npy_float64 pulse_height = -100000.;
+	npy_float64 pulse_bs = 0.; // holds the baseline average of the pulse
+	npy_intp pulse_start, pulse_max, pulse_stop;
+	PyObject *pulse_area_list = PyList_New(0);
+	PyObject *trace_quantities_list = PyList_New(0);
+	PyObject *pulse_quantities;
+	PyObject *p_area, *p_height;
+	PyObject *p_start, *p_max, *p_stop; //start, max, and stop of the pulse, in samples
+	for (npy_intp k=0; k<num_i; k++) {
+		b_el = (npy_bool *)PyArray_GETPTR1(nd_b, k);
+		if (*b_el == NPY_TRUE) {
+			pulse_area = 0.;
+			pulse_height = -100000.;
+			pulse_bs = 0.;
+			i_el = (npy_float64 *)PyArray_GETPTR1(nd_i, k);
+			
+			// loop over the pre-pulse samples (if any) to establish a new baseline
+			for (int b=0; b<num_samp_baseline_avg; b++) {
+				pulse_bs += *i_el;
+				k++;
+				i_el = (npy_float64 *)PyArray_GETPTR1(nd_i, k);
+			}
+			pulse_start = k;
+			pulse_bs /= num_samp_baseline_avg;
+			b_el = (npy_bool *)PyArray_GETPTR1(nd_b, k);
+			
+			// loop over samples of the pulse
+			while (*b_el == NPY_TRUE) {
+				pulse_area += *i_el - pulse_bs;
+				if (*i_el > pulse_height) {
+					pulse_height = *i_el - pulse_bs;
+					pulse_max = k;
+				}
+				k++;
+				b_el = (npy_bool *)PyArray_GETPTR1(nd_b, k);
+				i_el = (npy_float64 *)PyArray_GETPTR1(nd_i, k);
+			}
+			pulse_stop = k;
+			p_start = PyLong_FromLong(pulse_start);
+			p_max = PyLong_FromLong(pulse_max);
+			p_stop = PyLong_FromLong(pulse_stop);
+			p_area = PyFloat_FromDouble(pulse_area);
+			p_height = PyFloat_FromDouble(pulse_height);
+			pulse_quantities = PyTuple_Pack(5, p_start, p_max, p_stop, p_area, p_height);
+			Py_DECREF(p_start);
+			Py_DECREF(p_max);
+			Py_DECREF(p_stop);
+			Py_DECREF(p_area);
+			Py_DECREF(p_height);
+			PyList_Append(trace_quantities_list, pulse_quantities);
+			Py_DECREF(pulse_quantities);
+		}
+	}
+	return trace_quantities_list;
+}
+
 
 /* ----------------- <ARRAY ROW OPERATIONS> ----------------- */
 void ngdd_filt_mask_row(PyObject *args) {
@@ -732,6 +647,35 @@ void find_peaks_row(PyObject *args) {
 
 
 /* ----------------- <MODULE FUNCTIONS> ----------------- */
+static PyObject *meth_get_pulse_quantities(PyObject *self, PyObject *args, PyObject *kwargs) {
+	static char *keywords[] = {"","","pulse_bs_avg","axis", NULL};
+	PyArrayObject *nd_i, *nd_b;
+	long axis = -1;
+	long pulse_bs_avg = 0; // Use this many samples at the beginning of each PULSE (not evt) to
+	                       // recalculate the baseline average.
+	if (!PyArg_ParseTupleAndKeywords(args, kwargs, "O&O&|ll", keywords,
+		PyArray_Converter, &nd_i,
+		PyArray_Converter, &nd_b,
+		&pulse_bs_avg, &axis)) {
+		return NULL;
+	}
+	PyObject *aux_arrays = PyTuple_New(1);
+	Py_INCREF(nd_b);
+	PyTuple_SetItem(aux_arrays, 0, (PyObject *)nd_b);
+	PyObject *optargs = PyTuple_New(1);
+	PyTuple_SetItem(optargs, 0, PyLong_FromLong(pulse_bs_avg));
+	PyObject *list_out;
+	list_out = rowbyrow_list(get_pulse_quantities_lrow, nd_i, axis, aux_arrays, optargs);
+	//PyObject *dict_out = split_rowlist(list_out);
+	Py_DECREF(optargs);
+	Py_DECREF(aux_arrays);
+	Py_DECREF(nd_i);
+	Py_DECREF(nd_b);
+	//Py_DECREF(list_out);
+	return list_out;
+	//return dict_out;
+}
+
 static PyObject *meth_exp_filt(PyObject *self, PyObject *args, PyObject *kwargs) {
 	static char *keywords[] = {"signal", "t0", "axis", NULL};
 	PyArrayObject *nd_s;
@@ -879,12 +823,6 @@ static PyObject *meth_forwardconv(PyObject *self, PyObject *args, PyObject *kwar
 	return nd_f;
 }
 
-static PyObject *meth_printbranch(PyObject *self, PyObject *Py_UNUSED(args)) {
-	printf("main branch\n");
-	fflush(stdout);
-	Py_RETURN_NONE;
-}
-
 static PyObject *meth_find_peaks(PyObject *self, PyObject *args, PyObject *kwargs) {
 	static char *keywords[] = {"", "axis", "n", "thresh", NULL};
 	PyArrayObject *nd_i;
@@ -953,12 +891,13 @@ static PyObject *meth_find_peaks(PyObject *self, PyObject *args, PyObject *kwarg
 	PyObject *sliceO;
 	PyObject *slice_tuple;
 	PyObject *RQ_array;
-	int r;
+	//int r;
 	for (npy_intp k=0; k<numKeys; k++){
 		sliceO = PySlice_New(PyLong_FromLong(k), NULL, PyLong_FromLong(numKeys));
 		slice_tuple = PyTuple_Pack(2, Py_Ellipsis, sliceO);
 		RQ_array = PyArray_Transpose((PyArrayObject *)PyObject_GetItem(nd_o, slice_tuple), NULL);
-		r = PyDict_SetItemString(RQ_dict, keys[k], PyArray_Squeeze((PyArrayObject *)RQ_array));
+		//r = PyDict_SetItemString(RQ_dict, keys[k], PyArray_Squeeze((PyArrayObject *)RQ_array));
+		PyDict_SetItemString(RQ_dict, keys[k], PyArray_Squeeze((PyArrayObject *)RQ_array));
 	}
 	
 	//Py_DECREF(nd_i); // <-- over decrefs the input
@@ -968,6 +907,7 @@ static PyObject *meth_find_peaks(PyObject *self, PyObject *args, PyObject *kwarg
 	
 	return RQ_dict;
 }
+
 
 /* ----------------- </MODULE FUNCTIONS> ----------------- */
 
@@ -1024,11 +964,6 @@ PyDoc_STRVAR(
 	"different reduced quantities of each found pulse.");
 
 PyDoc_STRVAR(
-	printbranch__doc__,
-	"printbranch()\n--\n\n"
-	"Prints the [hard-coded] name of the test branch.");
-
-PyDoc_STRVAR(
 	ngdd_filt__doc__,
 	"ngdd_filt_mask(s_in, thresh=8., pre_samples_add=0, post_samples_add=10, axis=-1)\n--\n\n"
 	"Take the filtered result of a multidimensional array of raw data and\n"
@@ -1055,14 +990,40 @@ PyDoc_STRVAR(
 	"\n"
 	"Returns: nothing (acts on the input boolean array in place)");
 
+PyDoc_STRVAR(
+	get_pqs__doc,
+	"get_pulse_quantities(a, b, pulse_bs_avg=0, axis=-1)\n--\n\n"
+	"Get pulse quantities (e.g. area, height, etc.)\n"
+	"Inputs:\n"
+	"            a: Numpy array of dtype('float64') of raw waveforms.  Can be\n"
+	"               either a 1d (single) waveform) or 2d, where every\n"
+	"               individual waveform is along the axis given by the 'axis'\n"
+	"               keyword\n"
+	"            b: Numpy array of dtype('bool'), the same shape as 'a', that\n"
+	"               specifies the regions of pulses that have been found in\n"
+	"               input 'a'.  That is, in an individual waveform, 'b' will\n"
+	"               be mostly False, but a series of contiguous Trues\n"
+	"               indicates a pulse was found.  There may be several such\n"
+	"               regions (or none) in a given waveform.  This boolean array\n"
+	"               was probably made with function 'ngdd_filt_mask' in this\n"
+	"               module.\n"
+	" pulse_bs_avg: int, default=0.  The number of samples at the start of\n"
+	"               every pulse that is considered baseline, and is used to \n"
+	"               recalculate the baseline average for that individual pulse\n"
+	"               This must the same as what was given as the\n"
+	"               'pre_samples_add' keyword to 'ngdd_filt_mask'\n"
+	"         axis: int, default=-1.  The axis of the array along which\n"
+	"               individual waveforms run.  axis=-1 (the default) means the\n"
+	"               last dimension.");
+
 static PyMethodDef ldax_methods[] = {
 	{"avebox", (PyCFunction)meth_avebox,METH_VARARGS|METH_KEYWORDS, avebox__doc__},
 	{"exp_filt",(PyCFunction)meth_exp_filt,METH_VARARGS|METH_KEYWORDS, exp_filt__doc__},
 	{"find_peaks",(PyCFunction)meth_find_peaks,METH_VARARGS|METH_KEYWORDS, find_peaks__doc__},
 	{"forwardconv",(PyCFunction)meth_forwardconv,METH_VARARGS|METH_KEYWORDS, forwardconv__doc__},
-	{"printbranch",meth_printbranch,METH_NOARGS,printbranch__doc__},
 	{"ngdd_filt_mask",(PyCFunction)meth_ngdd_filt_mask, METH_VARARGS|METH_KEYWORDS, ngdd_filt__doc__},
 	{"merge_islands",(PyCFunction)meth_merge_islands, METH_VARARGS|METH_KEYWORDS, merge_islands__doc__},
+	{"get_pulse_quantities",(PyCFunction)meth_get_pulse_quantities,METH_VARARGS|METH_KEYWORDS, get_pqs__doc},
 	{NULL, NULL, 0, NULL}
 };
 
