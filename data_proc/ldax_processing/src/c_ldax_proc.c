@@ -28,10 +28,9 @@ PyObject *split_rowlist(PyObject *row_list) {
 	// what has been produced by get_pulse_quantities_lrow.
 	// Currently it is:
 	//   pulse_start, pulse_max, pulse_stop, pulse_area, pulse_height);
-	printf("::: 00-- row_list's refcount: %li\n", Py_REFCNT(row_list));
 	
-	char *rq_names[] = {"p_start","p_max","p_stop","p_area","p_height", NULL};
-	int rq_types[] = {NPY_INT64, NPY_INT64, NPY_INT64, NPY_FLOAT64, NPY_FLOAT64, -1};
+	char *rq_names[] = {"p_start","p_max","p_stop","p_area","p_height","p_bs", NULL};
+	int rq_types[] = {NPY_INT64, NPY_INT64, NPY_INT64, NPY_FLOAT64, NPY_FLOAT64, NPY_FLOAT64, -1};
 	
 	int num_rqs = 0;
 	while (rq_names[num_rqs] != NULL) {
@@ -79,6 +78,7 @@ PyObject *split_rowlist(PyObject *row_list) {
 	npy_int64 *i_el_int;
 	// Fill the arrays.
 	// Loop over events
+	
 	for (Py_ssize_t i_evt=0; i_evt<num_events; i_evt++) {
 		// first, get the number of pulses
 		i_sarray = (npy_int64 *)PyArray_GETPTR1(sarray, i_evt);
@@ -96,7 +96,7 @@ PyObject *split_rowlist(PyObject *row_list) {
 					*i_el_float = PyFloat_AsDouble(rq);
 				} else {
 					i_el_int = (npy_int64 *)PyArray_GETPTR1(rq_array, array_index);
-					*i_el_float = PyLong_AsLong(rq);
+					*i_el_int = PyLong_AsLong(rq);
 				}
 			}
 			array_index++;
@@ -105,23 +105,7 @@ PyObject *split_rowlist(PyObject *row_list) {
 	}
 	PyDict_SetItemString(out_dict, "sarray", sarray);
 	Py_DECREF(sarray);
-	
-	printf("::: 01-- row_list's refcount: %li\n", Py_REFCNT(row_list));
-	
 	Py_DECREF(evt_list);
-	/* list of PyObjects created here, except out_dict:
-	sarray
-	evt_list
-	rq_array
-	pls_tuple
-	rq
-	*/
-	printf("::: end --    sarray: %li\n", Py_REFCNT(sarray));
-	printf("::: end --  evt_list: %li\n", Py_REFCNT(sarray));
-	printf("::: end --  rq_array: %li\n", Py_REFCNT(sarray));
-	printf("::: end -- pls_tuple: %li\n", Py_REFCNT(sarray));
-	printf("::: end --        rq: %li\n", Py_REFCNT(sarray));
-	
 	return out_dict;
 }
 /* ----------------- <ROW-BY-ROW FUNCTIONS> ----------------- */
@@ -172,8 +156,8 @@ PyObject *get_pulse_quantities_lrow(PyObject *args) {
 	PyObject *pulse_area_list = PyList_New(0);
 	PyObject *trace_quantities_list = PyList_New(0);
 	PyObject *pulse_quantities;
-	PyObject *p_area, *p_height;
-	PyObject *p_start, *p_max, *p_stop; //start, max, and stop of the pulse, in samples
+	// Declare PyObjects that will hold pulse quantites
+	PyObject *p_area, *p_height, *p_start, *p_max, *p_stop, *p_bs;
 	for (npy_intp k=0; k<num_i; k++) {
 		b_el = (npy_bool *)PyArray_GETPTR1(nd_b, k);
 		if (*b_el == NPY_TRUE) {
@@ -209,12 +193,14 @@ PyObject *get_pulse_quantities_lrow(PyObject *args) {
 			p_stop = PyLong_FromLong(pulse_stop);
 			p_area = PyFloat_FromDouble(pulse_area);
 			p_height = PyFloat_FromDouble(pulse_height);
-			pulse_quantities = PyTuple_Pack(5, p_start, p_max, p_stop, p_area, p_height);
+			p_bs = PyFloat_FromDouble(pulse_bs);
+			pulse_quantities = PyTuple_Pack(6, p_start, p_max, p_stop, p_area, p_height, p_bs);
 			Py_DECREF(p_start);
 			Py_DECREF(p_max);
 			Py_DECREF(p_stop);
 			Py_DECREF(p_area);
 			Py_DECREF(p_height);
+			Py_DECREF(p_bs);
 			PyList_Append(trace_quantities_list, pulse_quantities);
 			Py_DECREF(pulse_quantities);
 		}
@@ -416,6 +402,71 @@ void avebox_row(PyObject *args) {
 		//*f_el = f_sum / n_dbl;
 		*f_el = f_sum / ((npy_float64)(n_half_ceil + i));
 		f_sum += *((npy_float64 *)PyArray_GETPTR1(nd_s, i+n_half_ceil));
+	}
+	
+	// Second for loop covers the main array (apart from the end bit)
+	for (npy_intp i=n_half_floor; i<(numel-n_half_ceil); i++) {
+		s_el = (npy_float64 *)PyArray_GETPTR1(nd_s, i);
+		f_el = (npy_float64 *)PyArray_GETPTR1(nd_f, i);
+		*f_el = f_sum / n_dbl;
+		f_sum += *((npy_float64 *)PyArray_GETPTR1(nd_s, i+n_half_ceil));
+		f_sum -= *((npy_float64 *)PyArray_GETPTR1(nd_s, i-n_half_floor));
+	}
+	
+	// Third for loop covers elements whose indices are closer to the end of the
+	// array than half the width of the box
+	for (npy_intp i=(numel-n_half_ceil); i<numel; i++) {
+		s_el = (npy_float64 *)PyArray_GETPTR1(nd_s, i);
+		f_el = (npy_float64 *)PyArray_GETPTR1(nd_f, i);
+		//*f_el = f_sum / n_dbl;
+		*f_el = f_sum / ((npy_float64)(n_half_ceil + (numel-i-1)));
+		f_sum -= *((npy_float64 *)PyArray_GETPTR1(nd_s,i-n_half_floor));
+	}
+	Py_DECREF(nd_s);
+	Py_DECREF(nd_f);
+}
+
+void maxbox_row(PyObject *args) {
+	// This is a filter function that works on a 1d array.
+	PyObject *nd_s, *nd_f;
+	//printf("\t\t\taveboxrow ---start--- Py_REFCNT(args[0]) = %li\n", Py_REFCNT(PyTuple_GetItem(args, 0)));
+	long n;
+	if (!PyArg_ParseTuple(args, "O&O&l",
+		PyArray_Converter, &nd_s,
+		PyArray_Converter, &nd_f,
+		&n)) {
+		PyErr_SetString(PyExc_ValueError,"Something wrong with inputs unpacking");
+	}
+	npy_intp numel = PyArray_SIZE(nd_s);
+	npy_intp numelf = PyArray_SIZE(nd_f);
+	if (numel != numelf) {
+		PyErr_SetString(PyExc_IndexError, "Input and output rows must have the same length");
+	}
+	npy_float64 *s_el, *f_el; // s_el is the pointer to an element in nd_i, f_el in nd_o
+	npy_float64 f_max = -9999999.;
+	//npy_float64 n_dbl = (npy_float64)n;
+	npy_intp n_half_floor = (npy_intp)(n/2);
+	npy_intp n_half_ceil = n_half_floor + 1;
+	
+	// Get the sum of the first half-box elements
+	for (npy_intp i=0; i<n_half_ceil; i++) {
+		s_el = (npy_float64 *)PyArray_GETPTR1(nd_s, i);
+		if (*s_el > f_max) {
+			f_max = *s_el;
+		}
+	}
+	
+	// Now do the actual filtering
+	// First loop covers elements whose indices are less than half the width of the box
+	for (npy_intp i=0; i<n_half_floor; i++) {
+		//s_el = (npy_float64 *)PyArray_GETPTR1(nd_s, i);
+		s_el = (npy_float64 *)PyArray_GETPTR1(nd_s, i+n_half_ceil);
+		f_el = (npy_float64 *)PyArray_GETPTR1(nd_f, i);
+		*f_el = f_max;
+		//*f_el = f_sum / ((npy_float64)(n_half_ceil + i));
+		if (*s_el > f_max) {
+			f_max = *s_el;
+		}
 	}
 	
 	// Second for loop covers the main array (apart from the end bit)
@@ -666,14 +717,14 @@ static PyObject *meth_get_pulse_quantities(PyObject *self, PyObject *args, PyObj
 	PyTuple_SetItem(optargs, 0, PyLong_FromLong(pulse_bs_avg));
 	PyObject *list_out;
 	list_out = rowbyrow_list(get_pulse_quantities_lrow, nd_i, axis, aux_arrays, optargs);
-	//PyObject *dict_out = split_rowlist(list_out);
+	PyObject *dict_out = split_rowlist(list_out);
 	Py_DECREF(optargs);
 	Py_DECREF(aux_arrays);
 	Py_DECREF(nd_i);
 	Py_DECREF(nd_b);
-	//Py_DECREF(list_out);
-	return list_out;
-	//return dict_out;
+	Py_DECREF(list_out);
+	//return list_out;
+	return dict_out;
 }
 
 static PyObject *meth_exp_filt(PyObject *self, PyObject *args, PyObject *kwargs) {
