@@ -62,10 +62,10 @@ def _lowpass_util(y, bw, axis=-1, filt_func=_RC_n_filt, **kwargs):
     y_out = np.fft.irfft(Y_filt, axis=axis)
     return y_out
 
-def lowpass_gauss(y, bw, axis=-1, shift=True):
-    return _lowpass_util(y, bw, axis=axis, filt_func=_gauss_filt, shift=shift)
+def lowpass_gauss(y, bw, axis=-1):
+    return _lowpass_util(y, bw, axis=axis, filt_func=_gauss_filt)
 
-def lowpass_RC(y, bw, n=1, axis=-1):
+def lowpass_RC(y, bw, n=1, axis=-1, shift=True):
     """
     Perform an n-pole RC-like low-pass filter of the data contained in y.
     Inputs:
@@ -88,7 +88,7 @@ def lowpass_RC(y, bw, n=1, axis=-1):
     Outputs:
      y_filt: The filtered form of the dat in y.
     """
-    return _lowpass_util(y, bw, axis=axis, filt_func=_RC_n_filt, n=n)
+    return _lowpass_util(y, bw, axis=axis, filt_func=_RC_n_filt, n=n, shift=shift)
 
 def highpass_RC(y, bw, n=1, axis=-1):
     """
