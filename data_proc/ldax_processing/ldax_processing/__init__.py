@@ -30,4 +30,8 @@ from ldax_processing.DDC40_BinReader import Read_DDC40_fName, Read_DDC40_Header
 
 del c_ldax_proc
 del fft_filters
+del proc_utils
 del DDC10_BinReader
+del DDC40_BinReader
+
+
