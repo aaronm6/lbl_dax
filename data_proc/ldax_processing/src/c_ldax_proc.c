@@ -426,6 +426,72 @@ void avebox_row(PyObject *args) {
 	Py_DECREF(nd_f);
 }
 
+void maxbox_row(PyObject *args) {
+	// This is a filter function that works on a 1d array.
+	PyObject *nd_s, *nd_f;
+	//printf("\t\t\taveboxrow ---start--- Py_REFCNT(args[0]) = %li\n", Py_REFCNT(PyTuple_GetItem(args, 0)));
+	long n;
+	if (!PyArg_ParseTuple(args, "O&O&l",
+		PyArray_Converter, &nd_s,
+		PyArray_Converter, &nd_f,
+		&n)) {
+		PyErr_SetString(PyExc_ValueError,"Something wrong with inputs unpacking");
+	}
+	npy_intp numel = PyArray_SIZE(nd_s);
+	npy_intp numelf = PyArray_SIZE(nd_f);
+	if (numel != numelf) {
+		PyErr_SetString(PyExc_IndexError, "Input and output rows must have the same length");
+	}
+	npy_float64 *s_el, *f_el; // s_el is the pointer to an element in nd_i, f_el in nd_o
+	//npy_float64 f_sum = 0.;
+	npy_float64 f_max = -9999999.;
+	npy_float64 n_dbl = (npy_float64)n;
+	npy_intp n_half_floor = (npy_intp)(n/2);
+	npy_intp n_half_ceil = n_half_floor + 1;
+	npy_intp n_window_end;
+	
+	// Get the max of the first half-box elements
+	for (npy_intp i=0; i<n_half_ceil; i++) {
+		s_el = (npy_float64 *)PyArray_GETPTR1(nd_s, i);
+		if (*s_el > f_max) { 
+			f_max = *s_el;
+		}
+		//f_sum += *s_el;
+	}
+	
+	// Now do the actual filtering
+	// First loop covers elements whose indices are less than half the width of the box
+	for (npy_intp i=0; i<n_half_floor; i++) {
+		s_el = (npy_float64 *)PyArray_GETPTR1(nd_s, i);
+		f_el = (npy_float64 *)PyArray_GETPTR1(nd_f, i);
+		//*f_el = f_sum / n_dbl;
+		//*f_el = f_sum / ((npy_float64)(n_half_ceil + i));
+		*f_el = f_max;
+		//f_sum += *((npy_float64 *)PyArray_GETPTR1(nd_s, i+n_half_ceil));
+		if (*s_el > f_max) {
+			f_max = *s_el;
+		}
+	}
+	
+	// Second for loop covers the main array (including the end bit)
+	//for (npy_intp i=n_half_floor; i<(numel-n_half_ceil); i++) {
+	for (npy_intp i=n_half_floor; i<numel; i++) {
+		f_max = -99999.;
+		n_window_end = intp_min(i+n_half_ceil, numel);
+		//for (npy_intp k=i-n_half_floor; k<i+n_half_ceil; k++) {
+		for (npy_intp k=i-n_half_floor; k<n_window_end; k++) {
+			s_el = (npy_float64 *)PyArray_GETPTR1(nd_s, k);
+			if (*s_el > f_max) {
+				f_max = *s_el;
+			}
+		}
+		f_el = (npy_float64 *)PyArray_GETPTR1(nd_f, i);
+		*f_el = f_max;
+	}
+	Py_DECREF(nd_s);
+	Py_DECREF(nd_f);
+}
+
 
 void forwardconv_row(PyObject *args) {
 	// nd_s is the initial signal
@@ -779,6 +845,34 @@ static PyObject *meth_avebox(PyObject *self, PyObject *args, PyObject *kwargs) {
 	return nd_f;
 }
 
+static PyObject *meth_maxbox(PyObject *self, PyObject *args, PyObject *kwargs) {
+	static char *keywords[] = {"signal", "n", "axis", NULL};
+	PyArrayObject *nd_s;
+	//PyObject *n;
+	long n=1;
+	long axis=-1;
+	if (!PyArg_ParseTupleAndKeywords(args, kwargs, "O&|ll", keywords,
+		PyArray_Converter, &nd_s,
+		&n,
+		&axis)) {
+		return NULL;
+	}
+	if ((n%2)==0) {
+		PyErr_SetString(PyExc_ValueError, "Input 'n' must be an ODD number");
+	}
+	if (PyArray_TYPE(nd_s) != NPY_FLOAT64) {
+		PyErr_SetString(PyExc_TypeError, "Input array 's_raw' must be of dtype numpy.float64");
+	}
+	PyObject *nd_f = PyArray_NewLikeArray(nd_s, NPY_ANYORDER, NULL, 1);
+	PyObject *optargs = PyTuple_Pack(1, PyLong_FromLong(n));
+	Py_INCREF(nd_s);
+	Py_INCREF(nd_f);
+	rowbyrow_optargs(maxbox_row, (PyObject *)nd_s, nd_f, axis, optargs);
+	Py_DECREF(nd_s);
+	Py_DECREF(optargs);
+	return nd_f;
+}
+
 static PyObject *meth_forwardconv(PyObject *self, PyObject *args, PyObject *kwargs) {
 	static char *keywords[] = {"signal", "kernel", "axis", NULL};
 	PyArrayObject *nd_s, *nd_kern;
@@ -910,6 +1004,16 @@ PyDoc_STRVAR(
 	"        Default is axis=1, which means along the ROWS.\n"
 	"output: The filtered signal.  Will have the same size as s_raw.");
 PyDoc_STRVAR(
+	maxbox__doc__,
+	"maxbox(s_raw, n, axis=-1)\n--\n\n"
+	"Apply a box maximum filter to a signal.\n"
+	" s_raw: raw signal.  Numpy array either 1d, or 2d.  If 2d,\n"
+	"        the signals will be filtered along axis.\n"
+	"     n: The number of samples in the box. n must be an ODD number\n"
+	"  axis: If s_raw is 2d, the filtering will occur along this axis.\n"
+	"        Default is axis=1, which means along the ROWS.\n"
+	"output: The filtered signal.  Will have the same size as s_raw.");
+PyDoc_STRVAR(
 	exp_filt__doc__,
 	"exp_filt(s_raw, t0=100., axis=-1)\n--\n\n"
 	"Apply an exponential filter to a signal.\n"
@@ -1005,6 +1109,7 @@ PyDoc_STRVAR(
 
 static PyMethodDef ldax_methods[] = {
 	{"avebox", (PyCFunction)meth_avebox,METH_VARARGS|METH_KEYWORDS, avebox__doc__},
+	{"maxbox", (PyCFunction)meth_maxbox,METH_VARARGS|METH_KEYWORDS, maxbox__doc__},
 	{"exp_filt",(PyCFunction)meth_exp_filt,METH_VARARGS|METH_KEYWORDS, exp_filt__doc__},
 	{"find_peaks",(PyCFunction)meth_find_peaks,METH_VARARGS|METH_KEYWORDS, find_peaks__doc__},
 	{"forwardconv",(PyCFunction)meth_forwardconv,METH_VARARGS|METH_KEYWORDS, forwardconv__doc__},

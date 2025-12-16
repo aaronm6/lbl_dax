@@ -62,15 +62,13 @@ def bs_subtract_nonpulse_poly(d, pulse_mask, order=7):
         raise TypeError("input d's dypte must be floating")
     n_evt, n_ch, n_samp = d.shape
     d_new = np.empty_like(d)
-    x = np.r_[:n_samp]
+    x = np.linspace(-1.,1.,n_samp)
     for k in range(n_evt):
         x_cut = ~(pulse_mask[k,...].any(axis=0))
-        p_coeffs = np.polyfit(x[x_cut], d[k,:,x_cut].T, order)
-        x_mat = x[x_cut, np.newaxis] ** (r_[order:-1:-1][np.newaxis,:])
+        p_coeffs = np.polyfit(x[x_cut], d[k,:,x_cut], order)
+        x_mat = x[:, np.newaxis] ** (np.r_[order:-1:-1][np.newaxis,:])
         bs_curves = (x_mat[..., np.newaxis] * p_coeffs[np.newaxis,...]).sum(axis=1)
-        if k==0:
-            print(f'bs_curves.shape = {bs_curves.shape}')
-        d_new[k,...] = d[k,...] - bs_curves
+        d_new[k,...] = d[k,...] - bs_curves.T
     return d_new
 
 bs_subtract_dict = {
@@ -96,5 +94,6 @@ def bs_subtract(d, *args, method='avg_first_n', **kwargs):
     if method in ('avg_nonpulse','polyfit_nonpulse') and not args:
         raise ValueError(f"pulse_mask must be given if method={method} is given")
     return bs_subtract_dict[method](d, *args, **kwargs)
+
 
 
