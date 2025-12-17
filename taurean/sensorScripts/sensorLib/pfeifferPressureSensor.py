@@ -1,5 +1,5 @@
 import serial
-
+from datetime import datetime
 #TODO: Make error handling
 class pfeifferPressureSensor:
     # Create sensor object and make connection to specified serial port
@@ -35,25 +35,17 @@ class pfeifferPressureSensor:
         self.serial.close()
 
 
-# with psycopg.connect("dbname=sensor_readings user=postgres password=LZ4850") as conn:
-#     conn.autocommit = True
-#     with conn.cursor() as cur:
-#         startTime = datetime.now()
-#         currentTime = datetime.now()
-#         readingHours = 3
-#         differenceTime = currentTime - startTime
-#         s = serial.Serial(serialPort)
-#         while (differenceTime.total_seconds() < 3600*readingHours):
-#             if (differenceTime.total_seconds() % 600):
-#                 print("10 minutes have passed")
-#             s.write(str.encode("PRX" + CR + LF))
-#             res = s.readline()
-#             s.write(str.encode(ENQ))
-#             res = s.readline().decode()
-#             pressure = res.split(",")[1]
-#             cur.execute(
-#                 "INSERT INTO temppressure (timestamp, pressure) VALUES (%s, %s)",
-#                 (datetime.now().strftime('%Y-%m-%d %H:%M:%S'), pressure))
-#             time.sleep(5)
-#         cur.close()
-#     conn.close()
+# startTime = datetime.now()
+# currentTime = datetime.now()
+# readingHours = 3
+# differenceTime = currentTime - startTime
+# s = serial.Serial("/dev/ttyUSB1")
+# while (differenceTime.total_seconds() < 3600*readingHours):
+#     if (differenceTime.total_seconds() % 600):
+#         print("10 minutes have passed")
+#     s.write(str.encode("PRX" + chr(13) + chr(10)))
+#     res = s.readline()
+#     s.write(str.encode(ENQ))
+#     res = s.readline().decode()
+#     pressure = res.split(",")[1]
+#     time.sleep(5)

@@ -25,4 +25,5 @@ while True:
         break
 
     databaseCur.close()
+    databaseConn.close()
 s.close()

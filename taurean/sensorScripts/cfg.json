@@ -10,27 +10,34 @@
             "loops": ["a", "b"],
             "channels": ["1"]
         },
+        "cryo_con_tpc": {
+            "enabled": "True",
+            "ip_address": "192.168.1.203",
+            "port": "5000",
+            "alert_threshold": "185"
+        },
         "omega_pressure": {
-            "enabled": "False",
+            "enabled": "True",
             "ip_address": "192.168.1.200",
-            "port": "2000"
+            "port": "2000",
+            "alert_threshold": "2.5"
         },
         "pfeiffer_pressure": {
             "enabled": "False",
-            "serial_port": "COM3",
+            "serial_port": "/dev/ttyUSB1",
             "channels": ["1"]
         },
         "mfc": {
-            "enabled": "False",
+            "enabled": "True",
             "serial_port": "/dev/ttyUSB0"
         },
         "load_sensor_1" : {
-            "enabled": "False",
+            "enabled": "True",
             "ip_address": "192.168.1.201",
             "port": "2000"
         },
         "load_sensor_2" : {
-            "enabled": "False",
+            "enabled": "True",
             "ip_address": "192.168.1.202",
             "port": "2000"
         }
@@ -44,6 +51,10 @@
         "cryo_con": {
             "table_name": "cryo_con",
             "column_names": ["timestamp", "temp_chana", "temp_chanb", "setpt_chana", "heater_enabled", "heater_output_power"]
+        },
+        "cryo_con_tpc": {
+            "table_name": "tpc_temp",
+            "column_names": ["timestamp", "tempreture"]
         },
         "omega_pressure": {
             "table_name": "omega_pressure",

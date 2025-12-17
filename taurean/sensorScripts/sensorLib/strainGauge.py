@@ -14,8 +14,12 @@ class strainGauge:
     def getStrainGaugeLoad(self):
         command = '*X01\r\n'
         self.socket.sendall(str.encode(command))
-        pressure = self.socket.recv(256).decode()
-        return pressure
+        strain = self.socket.recv(256).decode()
+        try: 
+            float(strain)
+            return strain
+        except ValueError:
+            return "-2"
 
     def close(self):
         self.socket.close()

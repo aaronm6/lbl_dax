@@ -1,5 +1,5 @@
 To: taureanzhang@lbl.gov
-Subject: TPC Emergency
+Subject: TPC Pressure Over Threshold
 From: hydrox-slowctrl@darkmatter.gov
 
-Temperature in TPC is too high, please check setup ASAP.
+Testing email feature

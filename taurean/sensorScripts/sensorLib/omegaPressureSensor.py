@@ -11,14 +11,15 @@ class omegaPressureSensor:
             raise TimeoutError("Can't connect to Omega Pressure, check device connection and IP address")
 
     def getOmegaSensorPressure(self):
-        command = '*G110\r'
+        command = '*G110\r\n'
         self.socket.sendall(str.encode(command))
         pressure = self.socket.recv(1024).decode()
-        return str((float(pressure)+0.01)*517.149326) #converts from dpsi to torr
+        del command
+        return str(pressure) #converts from dpsi to bar
 
     def close(self):
         self.socket.close()
 
-# dev = omegaPressureSensor("192.168.1.200", 2000)
-# print(dev.getOmegaSensorPressure())
-# dev.close()
+#dev = omegaPressureSensor("192.168.1.200", 2000)
+#print(dev.getOmegaSensorPressure())
+#dev.close()
