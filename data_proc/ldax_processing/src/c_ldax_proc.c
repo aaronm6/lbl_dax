@@ -698,8 +698,245 @@ void find_peaks_row(PyObject *args) {
 	Py_DECREF(nd_o);
 }
 
+void print_dims(npy_intp *inds, npy_intp *dims, int ndim) {
+	printf("[");
+	for (int k=0; k<ndim; k++) {
+		printf("%li,",inds[k]);
+	}
+	printf("] / [");
+	for (int k=0; k<ndim; k++) {
+		printf("%li,",dims[k]);
+	}
+	printf("]\n");
+}
+
 
 /* ----------------- <MODULE FUNCTIONS> ----------------- */
+int inc_inds(npy_intp *inds, npy_intp *dims, int ndim, long axis) {
+	// increment all but the last ind. This increments in place.
+	// Returns 1 if there is more to increment
+	// Returns 0 if there is no more to increment
+	// Returns 0 if ndim=1, i.e. it's a 1d array.  <-- this because
+	// this is intended to increment through the other dimensions.
+	// It increments backwards, i.e. second-to-last dim first, then 
+	// third-to-last, etc.
+	if (ndim<2) {
+		return 0;
+	}
+	//int dim = ndim-2;
+	int dim = ndim-1;
+	int rollover_last = 1;
+	int rollover_next = 0;
+	int rollover_count = 0;
+	while (dim>=0) {
+		if (dim != axis) {
+			if ((inds[dim]==(dims[dim]-1))&(rollover_last==1)) {
+				rollover_next = 1;
+				rollover_count++;
+			}
+			if (rollover_last==1) {
+				inds[dim] = (inds[dim] + 1)% dims[dim];
+			}
+			rollover_last = rollover_next;
+			rollover_next = 0;
+		}
+		dim--;
+	}
+	if (rollover_count == (ndim-1)) {
+		return 0;
+	}
+	return 1;
+}
+
+static PyObject *meth_baseline_update(PyObject *self, PyObject *args, PyObject *kwargs) {
+	// should be doing this with a row-by-row, but not set up to do that right now
+	static char *keywords[] = {"","","alpha","n_start","axis",NULL};
+	PyObject *obj_i, *obj_b;
+	long axis=-1;
+	npy_float64 alpha=0.01;
+	npy_intp n_start = 100;
+	if (!PyArg_ParseTupleAndKeywords(args, kwargs, "OO|dll", keywords,
+		&obj_i, &obj_b, &alpha, &n_start, &axis)) {
+		return NULL;
+	}
+	PyArrayObject *nd_i = (PyArrayObject *)PyArray_FROM_OTF(
+		obj_i, NPY_FLOAT64, 0);
+	PyArrayObject *nd_b = (PyArrayObject *)PyArray_FROM_OTF(
+		obj_b, NPY_BOOL, 0);
+	int ndim_i = PyArray_NDIM(nd_i);
+	int ndim_b = PyArray_NDIM(nd_b);
+	if (ndim_i != ndim_b) {
+		PyErr_SetString(PyExc_ValueError, "Signal and boolean arrays must be the same size");
+	}
+	
+	long raxis = get_axis(axis, ndim_i);
+	PyObject *nd_o = PyArray_NewLikeArray(nd_i, NPY_ANYORDER, NULL, 1);
+	npy_intp *dims = PyArray_DIMS(nd_i);
+	npy_intp inds[ndim_i];
+	for (int k=0; k<ndim_i; k++) {
+		inds[k] = 0;
+	}
+	npy_float64 *i_el, *o_el;
+	npy_bool *b_el;
+	npy_float64 last_bs;
+	npy_float64 init_sum=0.;
+	//last_bs = *i_el;
+	//print_dims(npy_intp *inds, npy_intp *dims, int ndim) {
+	int ii=0;
+	do {
+		ii++;
+		init_sum=0.;
+		for (npy_intp ind=0; ind<n_start; ind++) {
+			//inds[ndim_i-1] = ind;
+			inds[raxis] = ind;
+			i_el = (npy_float64 *)PyArray_GetPtr(nd_i, inds);
+			init_sum += *i_el;
+		}
+		last_bs = init_sum / ((npy_float64)n_start);
+		for (npy_intp ind=0; ind<dims[ndim_i-1]; ind++) {
+			//inds[ndim_i-1] = ind;
+			inds[raxis] = ind;
+			i_el = (npy_float64 *)PyArray_GetPtr(nd_i, inds);
+			b_el = (npy_bool *)PyArray_GetPtr(nd_b, inds);
+			o_el = (npy_float64 *)PyArray_GetPtr((PyArrayObject *)nd_o, inds);
+			if (*b_el == NPY_FALSE) {
+				*o_el = (*i_el)*alpha + last_bs*(1.-alpha);
+				last_bs = *o_el;
+			} else {
+				*o_el = last_bs;
+			}
+		}
+		//inds[ndim_i-1] = 0;
+		inds[raxis] = 0;
+	} while (inc_inds(inds, dims, ndim_i, raxis)&(ii<5000000));
+	//} while (inc_inds(inds, dims, ndim_i));
+	if (ii>=5000000) {
+		printf("Warning: maximum iterations exceeded in baseline calculation\n");
+		fflush(stdout);
+	}
+	
+	Py_DECREF(nd_i);
+	Py_DECREF(nd_b);
+	return nd_o;
+}
+
+static PyObject *meth_pulse_bnds_from_thresh(PyObject *self, PyObject *args, PyObject *kwargs) {
+	// All I want to do here is take in a signal array and a boolean array of the same size
+	// that was derived with something like
+	// >> b_array = s_array > thresh
+	// and then return a list of lists that indicated the start and end sample of each pulse
+	// something like
+	//     [ [[4,10],[300,350]], [[6, 12],[488,1200],[1500,1550]] ]
+	// that is two events, the first event had two pulses, the second event had three pulses.
+	// So s_array here is assumed to be the sum over channels, and should really just be
+	// a 2d array.
+	// This function should go to the start of a bool-True island, find the max within the
+	// island, then step left until 5% of max, then step left by a buffer, then that is the
+	// left boundary of the pulse.  Do the same on the right side.  But have to keep track
+	// not to get overlapping pulses.
+	PyObject *obj_s, *obj_b;
+	long axis=-1;
+	npy_intp pre_buff = 10;
+	npy_intp post_buff = 10;
+	npy_float64 pmax_frac_thresh = 0.05;
+	static char *keywords[] = {"", "", "pre_buffer", "post_buffer", "frac_thresh", "axis", NULL};
+	if (!PyArg_ParseTupleAndKeywords(args, kwargs, "OO|lldl", keywords,
+		&obj_s, &obj_b, &pre_buff, &post_buff, &pmax_frac_thresh, &axis)) {
+			return NULL;
+		}
+	PyArrayObject *nd_s = (PyArrayObject *)PyArray_FROM_OTF(obj_s, NPY_FLOAT64, 0);
+	PyArrayObject *nd_b = (PyArrayObject *)PyArray_FROM_OTF(obj_b, NPY_BOOL, 0);
+	
+	int ndim_s = PyArray_NDIM(nd_s);
+	int ndim_b = PyArray_NDIM(nd_b);
+	if (ndim_s != ndim_b) {
+		PyErr_SetString(PyExc_ValueError, "Signal and boolean arrays must be the same size");
+	}
+	if (ndim_s != 2) {
+		PyErr_SetString(PyExc_ValueError, "Input array should be 2d");
+	}
+	
+	long raxis = get_axis(axis, ndim_s);
+	npy_intp *dims = PyArray_DIMS(nd_s);
+	
+	npy_intp inds[ndim_s];
+	for (int k=0; k<ndim_s; k++) {
+		inds[k] = 0;
+	}
+	PyObject *out_list = PyList_New(0);
+	PyObject *evt_list = PyList_New(0);
+	Py_DECREF(evt_list); // keep the pointer var but the list will be dynamically regenerated in the loop
+	PyObject *bnd_list = PyList_New(0);
+	Py_DECREF(bnd_list);
+	npy_float64 p_max= -999.;
+	npy_intp p_max_ind = 0;
+	npy_float64 *el_s;
+	npy_bool *el_b;
+	npy_intp last_bnd_max = 0;
+	//npt_intp ii = 0;
+	// loop over events (but more generic than that)
+	// print_dims(npy_intp *inds, npy_intp *dims, int ndim)
+	npy_bool first_evt = NPY_TRUE;
+	do {
+		print_dims(inds, dims, ndim_s); fflush(stdout);
+		evt_list = PyList_New(0);
+		for (npy_intp ii=0; ii<dims[raxis]; ii++) {
+			inds[raxis] = ii;
+			el_b = (npy_bool *)PyArray_GetPtr(nd_b, inds);
+			if (first_evt == NPY_TRUE) {
+				printf("FIRST EVENT: -- ");
+				//print_dims(inds, dims, ndim_s); fflush(stdout);
+				printf("ii = %li, b_in = %i\n", ii, *el_b); fflush(stdout);
+			}
+			if (*el_b == NPY_TRUE) {
+				bnd_list = PyList_New(2);
+				p_max = -999.;
+				inds[raxis] = ii;
+				el_s = (npy_float64 *)PyArray_GetPtr(nd_s, inds);
+				while ((*el_b == NPY_TRUE)&(ii<dims[raxis])) {
+					inds[raxis] = ii;
+					if (*el_s>p_max) {
+						p_max = *el_s;
+						p_max_ind = ii;
+					}
+					el_s = (npy_float64 *)PyArray_GetPtr(nd_s, inds);
+					el_b = (npy_bool *)PyArray_GetPtr(nd_b, inds);
+					ii++;
+				}
+				ii = p_max_ind;
+				inds[raxis] = ii;
+				el_s = (npy_float64 *)PyArray_GetPtr(nd_s, inds);
+				while ((*el_s > pmax_frac_thresh*p_max)&(ii>last_bnd_max)) {
+					ii--;
+					inds[raxis] = ii;
+					el_s = (npy_float64 *)PyArray_GetPtr(nd_s, inds);
+				}
+				PyList_SetItem(bnd_list, 0, PyLong_FromLong(ii-pre_buff));
+				ii = p_max_ind;
+				inds[raxis] = ii;
+				el_s = (npy_float64 *)PyArray_GetPtr(nd_s, inds);
+				while ((*el_s > pmax_frac_thresh*p_max)&(ii<dims[raxis])) {
+					ii++;
+					inds[raxis] = ii;
+					el_s = (npy_float64 *)PyArray_GetPtr(nd_s, inds);
+				}
+				PyList_SetItem(bnd_list, 1, PyLong_FromLong(ii+post_buff));
+				PyList_Append(evt_list, bnd_list);
+				Py_DECREF(bnd_list);
+				ii += post_buff;
+				last_bnd_max = ii;
+			}
+		}
+		PyList_Append(out_list, evt_list);
+		Py_DECREF(evt_list);
+		first_evt = NPY_FALSE;
+	} while (inc_inds(inds, dims, ndim_s, raxis));
+	
+	Py_DECREF(nd_s);
+	Py_DECREF(nd_b);
+	return out_list;
+}
+
 static PyObject *meth_get_pulse_quantities(PyObject *self, PyObject *args, PyObject *kwargs) {
 	static char *keywords[] = {"","","pulse_bs_avg","axis", NULL};
 	PyArrayObject *nd_i, *nd_b;
@@ -903,7 +1140,26 @@ static PyObject *meth_forwardconv(PyObject *self, PyObject *args, PyObject *kwar
 	Py_DECREF(nd_kern);
 	return nd_f;
 }
-
+/*
+static PyObject *meth_get_peak_bounds(PyObject *self, PyObject *args, PyObject *kwargs) {
+	// get_peak_bounds(y, thresh=0., axis=-1)
+	// axis tells which axis to look over as traces.
+	// usually this will be given as one trace per event (which is a sum over channels)
+	PyObject *obj_i;
+	long axis = -1L;
+	npy_float64 thresh=0.;
+	static char *keywords[] = {"", "thresh", "axis", NULL};
+	if (!PyArg_ParseTupleAndKeywords(args, kwargs, "O|dl", keywords,
+		&obj_i, &thresh, &axis)) {
+		return NULL;
+	}
+	PyArrayObject *nd_i = (PyArrayObject *)PyArray_FROM_OTF(obj_i, NPY_FLOAT64, 0);
+	
+	int ndim = PyArray_NDIM(nd_i);
+	long raxis = get_axis(axis, (npy_intp)ndim);
+	npy_intp *dims = PyArray_DIMS(nd_i);
+	
+}*/
 static PyObject *meth_find_peaks(PyObject *self, PyObject *args, PyObject *kwargs) {
 	static char *keywords[] = {"", "axis", "n", "thresh", NULL};
 	PyArrayObject *nd_i;
@@ -1107,6 +1363,32 @@ PyDoc_STRVAR(
 	"               individual waveforms run.  axis=-1 (the default) means the\n"
 	"               last dimension.");
 
+PyDoc_STRVAR(
+	bs_up__doc__,
+	"baseline_update(y, b, alpha=0.01, n_start=100, axis=-1)\n--\n\n"
+	"\n"
+	"Calculate a rolling updating-baseline estimate.  It only counts baseline\n"
+	"when the boolean array 'b' is False. 'b' is intended to indicated where\n"
+	"there are pulses: b is True where there is a pulse\n"
+	"\n"
+	"Inputs:\n"
+	"       y : Numpy array of waveforms.  Waveforms are assumed to run along the last\n"
+	"           axis.  y's dtype must be np.float64\n"
+	"       b : Numpy array indicating where there are pulses. Must be the same size+shape\n"
+	"           as y.  b's dtype must be bool\n"
+	"   alpha : (default 0.01) Timescale over which past baselines contribute, in units\n"
+	"           of 1/samples.  So alpha=0.01 is a sample constant of 100 samples.  If there\n"
+	"           is some exponential decay tail in the data, its timeconstant, converted to\n"
+	"           samples, should be used here (inverted)\n"
+	" n_start : (default is 100) The start of the baseline estimate is chosen as the average\n"
+	"           of the first n_start samples.\n"
+	"    axis : (default is -1) The axis over which an event runs. THIS INPUT IS CURRENTLY\n"
+	"           IGNORED.");
+
+PyDoc_STRVAR(
+	pbt__doc__,
+	"pulse_bnds_from_thresh(s_in, b_arr, pre_buffer=10, post_buffer=10, frac_thresh=0.05, axis=-1)\n--\n\n");
+
 static PyMethodDef ldax_methods[] = {
 	{"avebox", (PyCFunction)meth_avebox,METH_VARARGS|METH_KEYWORDS, avebox__doc__},
 	{"maxbox", (PyCFunction)meth_maxbox,METH_VARARGS|METH_KEYWORDS, maxbox__doc__},
@@ -1116,6 +1398,8 @@ static PyMethodDef ldax_methods[] = {
 	{"ngdd_filt_mask",(PyCFunction)meth_ngdd_filt_mask, METH_VARARGS|METH_KEYWORDS, ngdd_filt__doc__},
 	{"merge_islands",(PyCFunction)meth_merge_islands, METH_VARARGS|METH_KEYWORDS, merge_islands__doc__},
 	{"get_pulse_quantities",(PyCFunction)meth_get_pulse_quantities,METH_VARARGS|METH_KEYWORDS, get_pqs__doc},
+	{"baseline_update",(PyCFunction)meth_baseline_update,METH_VARARGS|METH_KEYWORDS,bs_up__doc__},
+	{"pulse_bnds_from_thresh",(PyCFunction)meth_pulse_bnds_from_thresh,METH_VARARGS|METH_KEYWORDS,pbt__doc__},
 	{NULL, NULL, 0, NULL}
 };
 
