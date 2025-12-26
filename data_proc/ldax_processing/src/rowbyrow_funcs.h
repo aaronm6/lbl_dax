@@ -23,6 +23,19 @@ Py_ssize_t py_ssize_t_max(Py_ssize_t a, Py_ssize_t b) {
 	return b;
 }
 
+npy_float64 float64_max(npy_float64 a, npy_float64 b) {
+	if (a > b) {
+		return a;
+	}
+	return b;
+}
+npy_float64 float64_min(npy_float64 a, npy_float64 b) {
+	if (a < b) {
+		return a;
+	}
+	return b;
+}
+
 long get_axis(long axis_in, npy_intp ndim) {
 	// C's mod arithmatic works differently than python's.
 	// python: -1 % 3 = 2
