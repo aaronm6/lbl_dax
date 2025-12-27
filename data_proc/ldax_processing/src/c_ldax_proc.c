@@ -960,7 +960,202 @@ static PyObject *meth_split_pulses(PyObject *self, PyObject *args, PyObject *kwa
 	Py_DECREF(nd_d);
 	return bnd_list;
 }
+// for all these per-pulse base calcs, inputs need to be raw waveforms and pulse bounds
+static PyObject *meth_get_pA(PyObject *self, PyObject *args) {
+	// calc pulse area on ch_sum
+	// input: ch_sum (nevt x nsamp ndarray), p_bnds-darray (2 x n_pulses), p_bnds-sarray (n_evt)
+	// output: pA-darray (n_pulses, float64)
+	PyObject *obj_d, *obj_da, *obj_sa;
+	if (!PyArg_ParseTuple(args, "OOO", &obj_d, &obj_da, &obj_sa)) {
+		return NULL;
+	}
+	PyArrayObject *nd_d  = (PyArrayObject *)PyArray_FROM_OTF(obj_d, NPY_FLOAT64, 0);
+	PyArrayObject *nd_da = (PyArrayObject *)PyArray_FROM_OTF(obj_da, NPY_UINT32, 0);
+	PyArrayObject *nd_sa = (PyArrayObject *)PyArray_FROM_OTF(obj_sa, NPY_UINT16, 0);
+	int ndim_d = PyArray_NDIM(nd_d);
+	if (ndim_d != 2) {
+		PyErr_SetString(PyExc_ValueError, "pulse data must be 2d");
+	}
+	npy_intp *dims_d = PyArray_DIMS(nd_d);
+	npy_intp n_evt = dims_d[0];
+	int ndim_da = PyArray_NDIM(nd_da);
+	npy_intp *dims_da = PyArray_DIMS(nd_da);
+	npy_intp num_pulse_tot = dims_da[1];
+	npy_intp dims_new_darray[1];
+	dims_new_darray[0] = num_pulse_tot;
+	PyArrayObject *nd_new_darray = (PyArrayObject *)PyArray_EMPTY(1, dims_new_darray, NPY_FLOAT64, NPY_CORDER);
+	npy_uint16 *el_sa;
+	npy_uint32 *el_da1, *el_da2;
+	npy_float64 *el_d, *el_newda;
+	
+	npy_uint32 p_count = 0;
+	
+	npy_float64 f_sum = 0.;
+	// loop over events
+	for (npy_intp ie=0; ie<n_evt; ie++) {
+		el_sa = (npy_uint16 *)PyArray_GETPTR1(nd_sa, ie);
+		
+		//loop over pulses
+		for (npy_uint16 ip=0; ip<*el_sa; ip++) {
+			el_da1 = (npy_uint32 *)PyArray_GETPTR2(nd_da, 0, p_count);
+			el_da2 = (npy_uint32 *)PyArray_GETPTR2(nd_da, 1, p_count);
+			f_sum = 0.;
+			//loop over samples in a pulse
+			for (npy_uint32 i_samp=*el_da1; i_samp<=*el_da2; i_samp++) {
+				el_d = (npy_float64 *)PyArray_GETPTR2(nd_d, ie, i_samp);
+				f_sum += *el_d;
+			}
+			el_newda = (npy_float64 *)PyArray_GETPTR1(nd_new_darray, p_count);
+			*el_newda = f_sum;
+			p_count++;
+		}
+	}
+	Py_DECREF(nd_d);
+	Py_DECREF(nd_da);
+	Py_DECREF(nd_sa);
+	return (PyObject *)nd_new_darray;
+}
 
+static PyObject *meth_get_pA_ch(PyObject *self, PyObject *args) {
+	// calc pulse area on each channel
+	// input: ch (nevt x nch x nsamp ndarray), p_bnds-darray (2 x n_pulses), p_bnds-sarray (n_evt)
+	// output: pA-darray (n_ch x n_pulses, float64)
+	PyObject *obj_d, *obj_da, *obj_sa;
+	if (!PyArg_ParseTuple(args, "OOO", &obj_d, &obj_da, &obj_sa)) {
+		return NULL;
+	}
+	PyArrayObject *nd_d  = (PyArrayObject *)PyArray_FROM_OTF(obj_d, NPY_FLOAT64, 0);
+	PyArrayObject *nd_da = (PyArrayObject *)PyArray_FROM_OTF(obj_da, NPY_UINT32, 0);
+	PyArrayObject *nd_sa = (PyArrayObject *)PyArray_FROM_OTF(obj_sa, NPY_UINT16, 0);
+	int ndim_d = PyArray_NDIM(nd_d);
+	if (ndim_d != 3) {
+		PyErr_SetString(PyExc_ValueError, "pulse data must be 3d");
+	}
+	npy_intp *dims_d = PyArray_DIMS(nd_d);
+	npy_intp n_evt = dims_d[0];
+	npy_intp n_ch = dims_d[1];
+	int ndim_da = PyArray_NDIM(nd_da);
+	npy_intp *dims_da = PyArray_DIMS(nd_da);
+	npy_intp num_pulse_tot = dims_da[1];
+	npy_intp dims_new_darray[2];
+	dims_new_darray[0] = n_ch;
+	dims_new_darray[1] = num_pulse_tot;
+	PyArrayObject *nd_new_darray = (PyArrayObject *)PyArray_EMPTY(2, dims_new_darray, NPY_FLOAT64, NPY_CORDER);
+	npy_uint16 *el_sa;
+	npy_uint32 *el_da1, *el_da2;
+	npy_float64 *el_d, *el_newda;
+	
+	npy_uint32 p_count = 0;
+	
+	npy_float64 f_sum = 0.;
+	// loop over events
+	for (npy_intp ie=0; ie<n_evt; ie++) {
+		el_sa = (npy_uint16 *)PyArray_GETPTR1(nd_sa, ie);
+		
+		//loop over pulses
+		for (npy_uint16 ip=0; ip<*el_sa; ip++) {
+			el_da1 = (npy_uint32 *)PyArray_GETPTR2(nd_da, 0, p_count);
+			el_da2 = (npy_uint32 *)PyArray_GETPTR2(nd_da, 1, p_count);
+			// loop over channels
+			for (npy_intp ich=0; ich<n_ch; ich++) {
+				f_sum = 0.;
+				//loop over samples in a pulse
+				for (npy_uint32 i_samp=*el_da1; i_samp<=*el_da2; i_samp++) {
+					el_d = (npy_float64 *)PyArray_GETPTR3(nd_d, ie, ich, i_samp);
+					f_sum += *el_d;
+				}
+				el_newda = (npy_float64 *)PyArray_GETPTR2(nd_new_darray, ich, p_count);
+				*el_newda = f_sum;
+			}
+			p_count++;
+		}
+	}
+	Py_DECREF(nd_d);
+	Py_DECREF(nd_da);
+	Py_DECREF(nd_sa);
+	return (PyObject *)nd_new_darray;
+}
+
+static PyObject *meth_get_pH_ch(PyObject *self, PyObject *args) {
+	// calc pulse area on each channel
+	// input: ch (nevt x nch x nsamp ndarray), p_bnds-darray (2 x n_pulses), p_bnds-sarray (n_evt)
+	// output: pA-darray (n_ch x n_pulses, float64)
+	PyObject *obj_d, *obj_da, *obj_sa;
+	if (!PyArg_ParseTuple(args, "OOO", &obj_d, &obj_da, &obj_sa)) {
+		return NULL;
+	}
+	PyArrayObject *nd_d  = (PyArrayObject *)PyArray_FROM_OTF(obj_d, NPY_FLOAT64, 0);
+	PyArrayObject *nd_da = (PyArrayObject *)PyArray_FROM_OTF(obj_da, NPY_UINT32, 0);
+	PyArrayObject *nd_sa = (PyArrayObject *)PyArray_FROM_OTF(obj_sa, NPY_UINT16, 0);
+	int ndim_d = PyArray_NDIM(nd_d);
+	if (ndim_d != 3) {
+		PyErr_SetString(PyExc_ValueError, "pulse data must be 3d");
+	}
+	npy_intp *dims_d = PyArray_DIMS(nd_d);
+	npy_intp n_evt = dims_d[0];
+	npy_intp n_ch = dims_d[1];
+	int ndim_da = PyArray_NDIM(nd_da);
+	npy_intp *dims_da = PyArray_DIMS(nd_da);
+	npy_intp num_pulse_tot = dims_da[1];
+	npy_intp dims_new_darray[2];
+	dims_new_darray[0] = n_ch;
+	dims_new_darray[1] = num_pulse_tot;
+	PyArrayObject *nd_new_darray = (PyArrayObject *)PyArray_EMPTY(2, dims_new_darray, NPY_FLOAT64, NPY_CORDER);
+	npy_uint16 *el_sa;
+	npy_uint32 *el_da1, *el_da2;
+	npy_float64 *el_d, *el_newda;
+	
+	npy_uint32 p_count = 0;
+	
+	npy_float64 f_max = -999999.;
+	// loop over events
+	for (npy_intp ie=0; ie<n_evt; ie++) {
+		el_sa = (npy_uint16 *)PyArray_GETPTR1(nd_sa, ie);
+		
+		//loop over pulses
+		for (npy_uint16 ip=0; ip<*el_sa; ip++) {
+			el_da1 = (npy_uint32 *)PyArray_GETPTR2(nd_da, 0, p_count);
+			el_da2 = (npy_uint32 *)PyArray_GETPTR2(nd_da, 1, p_count);
+			// loop over channels
+			for (npy_intp ich=0; ich<n_ch; ich++) {
+				f_max = -999999.;
+				//loop over samples in a pulse
+				for (npy_uint32 i_samp=*el_da1; i_samp<=*el_da2; i_samp++) {
+					el_d = (npy_float64 *)PyArray_GETPTR3(nd_d, ie, ich, i_samp);
+					if (*el_d > f_max) {
+						f_max = *el_d;
+					}
+				}
+				el_newda = (npy_float64 *)PyArray_GETPTR2(nd_new_darray, ich, p_count);
+				*el_newda = f_max;
+			}
+			p_count++;
+		}
+	}
+	Py_DECREF(nd_d);
+	Py_DECREF(nd_da);
+	Py_DECREF(nd_sa);
+	return (PyObject *)nd_new_darray;
+}
+
+/*
+static PyObject *meth_get_pH(PyObject *self, PyObject *args, PyObject *kwargs) {
+	// calc pulse area on ch_sum
+}
+static PyObject *meth_get_pH_ch(PyObject *self, PyObject *args, PyObject *kwargs) {
+	// calc pulse area on ch_sum
+}
+static PyObject *meth_get_pA_times(PyObject *self, PyObject *args, PyObject *kwargs) {
+	// pulse area fractions on ch-sum waveform
+}
+static PyObject *meth_get_pH_times(PyObject *self, PyObject *args, PyObject *kwargs) {
+	// pulse height fractions on ch-sum waveform
+}
+static PyObject *meth_get_nfold(PyObject *self, PyObject *args) {
+	// for each pulse, return the n-fold coincidence... should easy with the podded
+	// per-channel waveforms
+}
+*/
 static PyObject *meth_pod_boolean(PyObject *self, PyObject *args, PyObject *kwargs) {
 	// usage: on individual channels and events, so take in a numpy array of dim
 	// n_evt x n_ch x n_samp, though it doesn't need to be that way.  The 'n_samp'
@@ -1046,7 +1241,7 @@ static PyObject *meth_pod_boolean(PyObject *self, PyObject *args, PyObject *kwar
 	} while (inc_inds(inds, dims, ndim, raxis));
 	
 	Py_DECREF(nd_i);
-	return nd_o;
+	return (PyObject *)nd_o;
 }
 
 static PyObject *meth_baseline_update(PyObject *self, PyObject *args, PyObject *kwargs) {
@@ -1238,7 +1433,7 @@ static PyObject *meth_pulse_bnds_from_thresh(PyObject *self, PyObject *args, PyO
 	return out_list;
 }
 
-static PyObject *meth_get_pulse_quantities(PyObject *self, PyObject *args, PyObject *kwargs) {
+static PyObject *meth_oldget_pulse_quantities(PyObject *self, PyObject *args, PyObject *kwargs) {
 	static char *keywords[] = {"","","pulse_bs_avg","axis", NULL};
 	PyArrayObject *nd_i, *nd_b;
 	long axis = -1;
@@ -1639,8 +1834,8 @@ PyDoc_STRVAR(
 	"Returns: nothing (acts on the input boolean array in place)");
 
 PyDoc_STRVAR(
-	get_pqs__doc,
-	"get_pulse_quantities(a, b, pulse_bs_avg=0, axis=-1)\n--\n\n"
+	oldget_pqs__doc,
+	"oldget_pulse_quantities(a, b, pulse_bs_avg=0, axis=-1)\n--\n\n"
 	"Get pulse quantities (e.g. area, height, etc.)\n"
 	"Inputs:\n"
 	"            a: Numpy array of dtype('float64') of raw waveforms.  Can be\n"
@@ -1707,11 +1902,14 @@ static PyMethodDef ldax_methods[] = {
 	{"forwardconv",(PyCFunction)meth_forwardconv,METH_VARARGS|METH_KEYWORDS, forwardconv__doc__},
 	{"ngdd_filt_mask",(PyCFunction)meth_ngdd_filt_mask, METH_VARARGS|METH_KEYWORDS, ngdd_filt__doc__},
 	{"merge_islands",(PyCFunction)meth_merge_islands, METH_VARARGS|METH_KEYWORDS, merge_islands__doc__},
-	{"get_pulse_quantities",(PyCFunction)meth_get_pulse_quantities,METH_VARARGS|METH_KEYWORDS, get_pqs__doc},
+	{"oldget_pulse_quantities",(PyCFunction)meth_oldget_pulse_quantities,METH_VARARGS|METH_KEYWORDS, oldget_pqs__doc},
 	{"baseline_update",(PyCFunction)meth_baseline_update,METH_VARARGS|METH_KEYWORDS,bs_up__doc__},
 	{"pulse_bnds_from_thresh",(PyCFunction)meth_pulse_bnds_from_thresh,METH_VARARGS|METH_KEYWORDS,pbt__doc__},
 	{"pod_boolean",(PyCFunction)meth_pod_boolean,METH_VARARGS|METH_KEYWORDS, pod_bool__doc__},
 	{"split_pulses",(PyCFunction)meth_split_pulses,METH_VARARGS|METH_KEYWORDS, split_pulses__doc__},
+	{"get_pA",meth_get_pA,METH_VARARGS, PyDoc_STR("--")},
+	{"get_pA_ch",meth_get_pA_ch,METH_VARARGS, PyDoc_STR("--")},
+	{"get_pH_ch",meth_get_pH_ch,METH_VARARGS, PyDoc_STR("--")},
 	{NULL, NULL, 0, NULL}
 };
 
