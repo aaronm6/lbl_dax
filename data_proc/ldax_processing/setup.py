@@ -16,7 +16,7 @@ setup(
     license="GPL-2.1",
     ext_modules=[module],
     packages=find_packages(where='.',include=["ldax_processing"]),
-    install_requires=['numpy<2'],
+    install_requires=['numpy<2','varray>=1.1.1'],
 )
 #    build_requires=['numpy>=2']
 #    packages=["ldax_processing"]
