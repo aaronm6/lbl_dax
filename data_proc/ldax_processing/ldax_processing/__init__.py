@@ -24,9 +24,14 @@ Processing function:
 """
 from ldax_processing.c_ldax_proc import *
 from ldax_processing.fft_filters import *
+from ldax_processing.proc_utils import *
 from ldax_processing.DDC10_BinReader import Read_DDC10_fName
 from ldax_processing.DDC40_BinReader import Read_DDC40_fName, Read_DDC40_Header
 
 del c_ldax_proc
 del fft_filters
+del proc_utils
 del DDC10_BinReader
+del DDC40_BinReader
+
+

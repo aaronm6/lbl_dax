@@ -5,128 +5,190 @@
 #include <numpy/npy_math.h>
 #include <math.h>
 
+#include "rowbyrow_funcs.h"
+
 /* ----------------- <AUX FUNCTIONS> ----------------- */
-npy_intp intp_max(npy_intp a, npy_intp b) {
-	if (a > b) {
-		return a;
+PyObject *split_rowlist(PyObject *row_list) {
+	// Takes something that was produced following get_pulse_quantities (given a
+	// 2d array of waveforms) and produce a dict of numpy arrays.
+	// These arrays are intended to be used to construct varrays.
+	// For example, we may have 2 waveforms: the first waveform has one pulse
+	// of pulse area 100. and pulse height 10.  The second waveform has two pulses
+	// of pulse areas (200,220) and pulse heights (20,22).  The output of rowbyrow_list
+	// will be: 
+	//       [[(100., 10.)], [(200., 20.), (220., 22.)]].
+	// We want to turn this into data arrays and a single shape arrays (i.e. the inputs
+	// to varray's constructor).
+	// pA_darray = np.array([100., 200., 220.])
+	// pH_darray = np.array([10., 20., 22.])
+	// sarray = np.array([1, 2])
+	// This function takes that nested list above and produces a dict of arrays.
+	//
+	// The pulse quantities provided, and their order, is hard coded here to match
+	// what has been produced by get_pulse_quantities_lrow.
+	// Currently it is:
+	//   pulse_start, pulse_max, pulse_stop, pulse_area, pulse_height);
+	
+	char *rq_names[] = {"p_start","p_max","p_stop","p_area","p_height","p_bs", NULL};
+	int rq_types[] = {NPY_INT64, NPY_INT64, NPY_INT64, NPY_FLOAT64, NPY_FLOAT64, NPY_FLOAT64, -1};
+	
+	int num_rqs = 0;
+	while (rq_names[num_rqs] != NULL) {
+		num_rqs++;
 	}
-	return b;
-}
-npy_intp intp_min(npy_intp a, npy_intp b) {
-	if (a < b) {
-		return a;
+	
+	Py_ssize_t num_events = PyList_Size(row_list);
+	
+	// Determine how many pulses there are:
+	Py_ssize_t num_pulses = 0;
+	//int row_size[num_events];
+	int sarray_ndim = 1;
+	npy_intp sarray_dims[1];
+	sarray_dims[0] = num_events;
+	PyObject *sarray = PyArray_EMPTY(sarray_ndim, sarray_dims, NPY_LONG, NPY_CORDER);
+	npy_int64 *i_sarray;
+	PyObject *evt_list;
+	for (int i=0; i<num_events; i++) {
+		evt_list = PyList_GetItem(row_list, i);
+		num_pulses += PyList_Size(evt_list);
+		//row_size[i] = PyList_Size(evt_list);
+		i_sarray = (npy_int64 *)PyArray_GETPTR1(sarray, i);
+		*i_sarray = PyList_Size(evt_list);
 	}
-	return b;
-}
-
-Py_ssize_t py_ssize_t_max(Py_ssize_t a, Py_ssize_t b) {
-	if (a > b) {
-		return a;
+	
+	PyObject *out_dict = PyDict_New();
+	//int r;
+	PyObject *rq_array;
+	int ndim = 1;
+	npy_intp dims[1];
+	dims[0] = num_pulses;
+	
+	// initialize the npyarrays and put them into the dict
+	for (int i=0; i<num_rqs; i++) {
+		rq_array = PyArray_EMPTY(ndim, dims, rq_types[i], NPY_CORDER);
+		//r = PyDict_SetItemString(out_dict, rq_names[i], rq_array);
+		PyDict_SetItemString(out_dict, rq_names[i], rq_array);
+		Py_DECREF(rq_array);
 	}
-	return b;
+	
+	Py_ssize_t array_index=0;
+	PyObject *pls_tuple; // tuple that will hold the per-pulse info
+	PyObject *rq;
+	npy_float64 *i_el_float;
+	npy_int64 *i_el_int;
+	// Fill the arrays.
+	// Loop over events
+	
+	for (Py_ssize_t i_evt=0; i_evt<num_events; i_evt++) {
+		// first, get the number of pulses
+		i_sarray = (npy_int64 *)PyArray_GETPTR1(sarray, i_evt);
+		// get the event list
+		evt_list = PyList_GetItem(row_list, i_evt);
+		// loop over pulses within the event i_evt
+		for (Py_ssize_t i_pls=0; i_pls<*i_sarray; i_pls++) {
+			pls_tuple = PyList_GetItem(evt_list, i_pls);
+			// now loop over RQ
+			for (Py_ssize_t i_rq=0; i_rq<num_rqs; i_rq++) {
+				rq = PyTuple_GetItem(pls_tuple, i_rq);
+				rq_array = PyDict_GetItemString(out_dict, rq_names[i_rq]);
+				if (rq_types[i_rq] == NPY_FLOAT64) {
+					i_el_float = (npy_float64 *)PyArray_GETPTR1(rq_array, array_index);
+					*i_el_float = PyFloat_AsDouble(rq);
+				} else {
+					i_el_int = (npy_int64 *)PyArray_GETPTR1(rq_array, array_index);
+					*i_el_int = PyLong_AsLong(rq);
+				}
+			}
+			array_index++;
+		}
+		
+	}
+	PyDict_SetItemString(out_dict, "sarray", sarray);
+	Py_DECREF(sarray);
+	Py_DECREF(evt_list);
+	return out_dict;
 }
-
-long get_axis(long axis_in, npy_intp ndim) {
-	// C's mod arithmatic works differently than python's.
-	// python: -1 % 3 = 2
-	//      C: -1 % 3 = -1
-	// if axis is -1 and ndim is 3, then axis should be 2.  Easy
-	// in python, but requires more steps in C.
-	return (long)((ndim + ((npy_intp)axis_in % ndim)) % ndim);
-}
-
 /* ----------------- <ROW-BY-ROW FUNCTIONS> ----------------- */
 
-void rowbyrow_optargs(void (*f)(PyObject *args), PyObject *nd_i, PyObject *nd_o, long axis, PyObject *optargs) {
-	int ndim = PyArray_NDIM(nd_i);
-	npy_intp *dims = PyArray_DIMS(nd_i);
-	Py_ssize_t optarg_length = PyTuple_Size(optargs);
-	PyObject *passargs = PyTuple_New(2 + py_ssize_t_max(optarg_length, 0));
-	for (int i=0; i<py_ssize_t_max(optarg_length, 0); i++) {
-		PyTuple_SetItem(passargs, i+2, PyTuple_GetItem(optargs, i));
+/* ----------------- <ARRAY LROW OPERATIONS> ----------------- */
+PyObject *get_pulse_quantities_lrow(PyObject *args) {
+	Py_ssize_t args_len = PyTuple_Size(args);
+	
+	PyArrayObject *nd_i, *nd_b;
+	nd_i = (PyArrayObject *)PyTuple_GetItem(args, 0);
+	nd_b = (PyArrayObject *)PyTuple_GetItem(args, 1);
+	npy_intp num_samp_baseline_avg = 0L;
+	if (args_len > 2) {
+		num_samp_baseline_avg = PyLong_AsLong(PyTuple_GetItem(args, 2));
+	}
+		
+	npy_intp num_i = PyArray_SIZE(nd_i);
+	npy_intp num_b = PyArray_SIZE(nd_b);
+	if (num_i != num_b) {
+		PyErr_SetString(PyExc_ValueError, "input data and binary array must have the same length.");
 	}
 	
-	long raxis = get_axis(axis, ndim);
-	
-	if (optarg_length > 0) {
-		Py_INCREF(PyTuple_GetItem(optargs, 0)); //needed because the above tuple packing doesn't incref n
-	}
-	if (ndim == 1) {
-		PyTuple_SetItem(passargs, 0, nd_i);
-		PyTuple_SetItem(passargs, 1, nd_o);
-		Py_INCREF(nd_i);
-		Py_INCREF(nd_o);
-		f(passargs);
-		Py_DECREF(passargs);
-		Py_DECREF(nd_i);
-		Py_DECREF(nd_o);
-	} else {
-		PyObject *slice_full = PySlice_New(NULL, NULL, NULL);
-		PyObject *slices_1d = PyTuple_New(ndim);
-		PyObject *slices_nd = PyTuple_New(ndim);
-		for (int k=0; k<ndim; k++) {
-			if (k == raxis) {
-				PyTuple_SetItem(slices_1d, k, slice_full);
-				PyTuple_SetItem(slices_nd, k, PyLong_FromLong(0));
-			} else {
-				PyTuple_SetItem(slices_1d, k, PyLong_FromLong(0));
-				PyTuple_SetItem(slices_nd, k, slice_full);
+	npy_float64 *i_el;
+	npy_bool *b_el;
+	npy_float64 pulse_area = 0.;
+	npy_float64 pulse_height = -100000.;
+	npy_float64 pulse_bs = 0.; // holds the baseline average of the pulse
+	npy_intp pulse_start, pulse_max, pulse_stop;
+	PyObject *pulse_area_list = PyList_New(0);
+	PyObject *trace_quantities_list = PyList_New(0);
+	PyObject *pulse_quantities;
+	// Declare PyObjects that will hold pulse quantites
+	PyObject *p_area, *p_height, *p_start, *p_max, *p_stop, *p_bs;
+	for (npy_intp k=0; k<num_i; k++) {
+		b_el = (npy_bool *)PyArray_GETPTR1(nd_b, k);
+		if (*b_el == NPY_TRUE) {
+			pulse_area = 0.;
+			pulse_height = -100000.;
+			pulse_bs = 0.;
+			i_el = (npy_float64 *)PyArray_GETPTR1(nd_i, k);
+			
+			// loop over the pre-pulse samples (if any) to establish a new baseline
+			for (int b=0; b<num_samp_baseline_avg; b++) {
+				pulse_bs += *i_el;
+				k++;
+				i_el = (npy_float64 *)PyArray_GETPTR1(nd_i, k);
 			}
+			pulse_start = k;
+			pulse_bs /= num_samp_baseline_avg;
+			b_el = (npy_bool *)PyArray_GETPTR1(nd_b, k);
+			
+			// loop over samples of the pulse
+			while (*b_el == NPY_TRUE) {
+				pulse_area += *i_el - pulse_bs;
+				if (*i_el > pulse_height) {
+					pulse_height = *i_el - pulse_bs;
+					pulse_max = k;
+				}
+				k++;
+				b_el = (npy_bool *)PyArray_GETPTR1(nd_b, k);
+				i_el = (npy_float64 *)PyArray_GETPTR1(nd_i, k);
+			}
+			pulse_stop = k;
+			p_start = PyLong_FromLong(pulse_start);
+			p_max = PyLong_FromLong(pulse_max);
+			p_stop = PyLong_FromLong(pulse_stop);
+			p_area = PyFloat_FromDouble(pulse_area);
+			p_height = PyFloat_FromDouble(pulse_height);
+			p_bs = PyFloat_FromDouble(pulse_bs);
+			pulse_quantities = PyTuple_Pack(6, p_start, p_max, p_stop, p_area, p_height, p_bs);
+			Py_DECREF(p_start);
+			Py_DECREF(p_max);
+			Py_DECREF(p_stop);
+			Py_DECREF(p_area);
+			Py_DECREF(p_height);
+			Py_DECREF(p_bs);
+			PyList_Append(trace_quantities_list, pulse_quantities);
+			Py_DECREF(pulse_quantities);
 		}
-		
-		PyArrayObject *aslice_row_i = (PyArrayObject *)PyObject_GetItem(nd_i, slices_1d);
-		PyArrayObject *aslice_mat_i = (PyArrayObject *)PyObject_GetItem(nd_i, slices_nd);
-		PyArrayObject *aslice_row_o = (PyArrayObject *)PyObject_GetItem(nd_o, slices_1d);
-		PyArrayObject *aslice_mat_o = (PyArrayObject *)PyObject_GetItem(nd_o, slices_nd);
-		PyTuple_SetItem(passargs, 0, (PyObject *)aslice_row_i);
-		PyTuple_SetItem(passargs, 1, (PyObject *)aslice_row_o);
-		
-		NpyIter *iter_i, *iter_o;
-		NpyIter_IterNextFunc *iternext_i, *iternext_o;
-		char **dataptr_i, **dataptr_o;
-		
-		iter_i = NpyIter_New(aslice_mat_i, NPY_ITER_READONLY,
-			NPY_CORDER, NPY_NO_CASTING, NULL);
-		iter_o = NpyIter_New(aslice_mat_o, NPY_ITER_READONLY,
-			NPY_CORDER, NPY_NO_CASTING, NULL);
-		
-		iternext_i = NpyIter_GetIterNext(iter_i, NULL);
-		iternext_o = NpyIter_GetIterNext(iter_o, NULL);
-		if (iternext_i == NULL) {
-			NpyIter_Deallocate(iter_i);
-		}
-		if (iternext_o == NULL) {
-			NpyIter_Deallocate(iter_o);
-		}
-		
-		dataptr_i = NpyIter_GetDataPtrArray(iter_i);
-		dataptr_o = NpyIter_GetDataPtrArray(iter_o);
-		char *data_i, *data_o;
-		do {
-			data_i = *dataptr_i;
-			data_o = *dataptr_o;
-			aslice_row_i->data = (void *)data_i;
-			aslice_row_o->data = (void *)data_o;
-			f(passargs);
-			iternext_o(iter_o);
-		} while(iternext_i(iter_i));
-		
-		NpyIter_Deallocate(iter_i);
-		NpyIter_Deallocate(iter_o);
-		Py_DECREF(passargs);
-		Py_DECREF(aslice_mat_i);
-		Py_DECREF(aslice_mat_o);
-		Py_DECREF(nd_i);
-		Py_DECREF(nd_o);
 	}
+	return trace_quantities_list;
 }
 
-void rowbyrow(void (*f)(PyObject *args), PyObject *nd_i, PyObject *nd_o, long axis) {
-	// this is an overloaded wrapper for the main function, which requires `optargs`
-	PyObject *optargs = PyTuple_New(0);
-	rowbyrow_optargs(f, nd_i, nd_o, axis, optargs);
-	Py_DECREF(optargs);
-}
 
 /* ----------------- <ARRAY ROW OPERATIONS> ----------------- */
 void ngdd_filt_mask_row(PyObject *args) {
@@ -163,7 +225,7 @@ void ngdd_filt_mask_row(PyObject *args) {
 		b_el = (npy_bool *)PyArray_GETPTR1(nd_b, k);
 		if (*s_el >= thresh) {
 			k_p = k;
-			while ((*s_el > 0.) & (k_p >= 0)) {
+			while ((*s_el > 0.) && (k_p >= 0)) {
 				//s_el = (npy_float64 *)PyArray_GETPTR1(nd_s, k_p);
 				//b_el = (npy_bool *)PyArray_GETPTR1(nd_b, k_p);
 				*b_el = NPY_TRUE;
@@ -172,21 +234,21 @@ void ngdd_filt_mask_row(PyObject *args) {
 				b_el = (npy_bool *)PyArray_GETPTR1(nd_b, k_p);
 			}
 			k_pre = 0;
-			while ((k_pre<pre_samples_add) & (k_p-k_pre>=0)) {
+			while ((k_pre<pre_samples_add) && (k_p-k_pre>=0)) {
 				b_el = (npy_bool *)PyArray_GETPTR1(nd_b, k_p-k_pre);
 				*b_el = NPY_TRUE;
 				k_pre++;
 			}
 			s_el = (npy_float64 *)PyArray_GETPTR1(nd_s, k);
 			b_el = (npy_bool *)PyArray_GETPTR1(nd_b, k);
-			while ((*s_el > 0.) & (k < numel_s)) {
+			while ((*s_el > 0.) && (k < numel_s)) {
 				*b_el = NPY_TRUE;
 				k++;
 				s_el = (npy_float64 *)PyArray_GETPTR1(nd_s, k);
 				b_el = (npy_bool *)PyArray_GETPTR1(nd_b, k);
 			}
 			k_p = 0;
-			while ((k_p<post_samples_add) & (k_p+k < numel_s)) {
+			while ((k_p<post_samples_add) && (k_p+k < numel_s)) {
 				b_el = (npy_bool *)PyArray_GETPTR1(nd_b, k+k_p);
 				*b_el = NPY_TRUE;
 				k_p++;
@@ -213,18 +275,18 @@ void merge_islands_row(PyObject *args) {
 	
 	for (long k=0; k<numel; k++) {
 		b_el = (npy_bool *)PyArray_GETPTR1(nd_b, k);
-		if ((last==NPY_TRUE) & (*b_el == NPY_FALSE)) {
+		if ((last==NPY_TRUE) && (*b_el == NPY_FALSE)) {
 			gate = NPY_TRUE;
 		}
-		while ((gate==NPY_TRUE) & (k_counter<=(width+1)) & (*b_el==NPY_FALSE) & (k<numel)) {
+		while ((gate==NPY_TRUE) && (k_counter<=(width+1)) && (*b_el==NPY_FALSE) && (k<numel)) {
 			b_el = (npy_bool *)PyArray_GETPTR1(nd_b, k);
 			k_counter++;
 			k++;
 		}
-		if ((gate==NPY_TRUE) & (k_counter <= (width+1)) & (k<numel)) {
+		if ((gate==NPY_TRUE) && (k_counter <= (width+1)) && (k<numel)) {
 			*b_el = NPY_TRUE;
 		}
-		while ((gate==NPY_TRUE) & (k_counter <= (width+1)) & (k_counter>=0) & (k<numel)) {
+		while ((gate==NPY_TRUE) && (k_counter <= (width+1)) && (k_counter>=0) && (k<numel)) {
 			k_counter--;
 			b_el = (npy_bool *)PyArray_GETPTR1(nd_b, k-k_counter-1);
 			*b_el = NPY_TRUE;
@@ -344,6 +406,73 @@ void avebox_row(PyObject *args) {
 	Py_DECREF(nd_s);
 	Py_DECREF(nd_f);
 }
+
+void maxbox_row(PyObject *args) {
+	// This is a filter function that works on a 1d array.
+	PyObject *nd_s, *nd_f;
+	//printf("\t\t\taveboxrow ---start--- Py_REFCNT(args[0]) = %li\n", Py_REFCNT(PyTuple_GetItem(args, 0)));
+	long n;
+	if (!PyArg_ParseTuple(args, "O&O&l",
+		PyArray_Converter, &nd_s,
+		PyArray_Converter, &nd_f,
+		&n)) {
+		PyErr_SetString(PyExc_ValueError,"Something wrong with inputs unpacking");
+	}
+	npy_intp numel = PyArray_SIZE(nd_s);
+	npy_intp numelf = PyArray_SIZE(nd_f);
+	if (numel != numelf) {
+		PyErr_SetString(PyExc_IndexError, "Input and output rows must have the same length");
+	}
+	npy_float64 *s_el, *f_el; // s_el is the pointer to an element in nd_i, f_el in nd_o
+	//npy_float64 f_sum = 0.;
+	npy_float64 f_max = -9999999.;
+	npy_float64 n_dbl = (npy_float64)n;
+	npy_intp n_half_floor = (npy_intp)(n/2);
+	npy_intp n_half_ceil = n_half_floor + 1;
+	npy_intp n_window_end;
+	
+	// Get the max of the first half-box elements
+	for (npy_intp i=0; i<n_half_ceil; i++) {
+		s_el = (npy_float64 *)PyArray_GETPTR1(nd_s, i);
+		if (*s_el > f_max) { 
+			f_max = *s_el;
+		}
+		//f_sum += *s_el;
+	}
+	
+	// Now do the actual filtering
+	// First loop covers elements whose indices are less than half the width of the box
+	for (npy_intp i=0; i<n_half_floor; i++) {
+		s_el = (npy_float64 *)PyArray_GETPTR1(nd_s, i);
+		f_el = (npy_float64 *)PyArray_GETPTR1(nd_f, i);
+		//*f_el = f_sum / n_dbl;
+		//*f_el = f_sum / ((npy_float64)(n_half_ceil + i));
+		*f_el = f_max;
+		//f_sum += *((npy_float64 *)PyArray_GETPTR1(nd_s, i+n_half_ceil));
+		if (*s_el > f_max) {
+			f_max = *s_el;
+		}
+	}
+	
+	// Second for loop covers the main array (including the end bit)
+	//for (npy_intp i=n_half_floor; i<(numel-n_half_ceil); i++) {
+	for (npy_intp i=n_half_floor; i<numel; i++) {
+		f_max = -99999.;
+		n_window_end = intp_min(i+n_half_ceil, numel);
+		//for (npy_intp k=i-n_half_floor; k<i+n_half_ceil; k++) {
+		for (npy_intp k=i-n_half_floor; k<n_window_end; k++) {
+			s_el = (npy_float64 *)PyArray_GETPTR1(nd_s, k);
+			if (*s_el > f_max) {
+				f_max = *s_el;
+			}
+		}
+		f_el = (npy_float64 *)PyArray_GETPTR1(nd_f, i);
+		*f_el = f_max;
+	}
+	Py_DECREF(nd_s);
+	Py_DECREF(nd_f);
+}
+
 
 void forwardconv_row(PyObject *args) {
 	// nd_s is the initial signal
@@ -550,8 +679,916 @@ void find_peaks_row(PyObject *args) {
 	Py_DECREF(nd_o);
 }
 
+void print_dims(npy_intp *inds, npy_intp *dims, int ndim) {
+	printf("[");
+	for (int k=0; k<ndim; k++) {
+		printf("%li,",inds[k]);
+	}
+	printf("] / [");
+	for (int k=0; k<ndim; k++) {
+		printf("%li,",dims[k]);
+	}
+	printf("]\n");
+}
+
 
 /* ----------------- <MODULE FUNCTIONS> ----------------- */
+int inc_inds(npy_intp *inds, npy_intp *dims, int ndim, long axis) {
+	// increment all but the last ind. This increments in place.
+	// Returns 1 if there is more to increment
+	// Returns 0 if there is no more to increment
+	// Returns 0 if ndim=1, i.e. it's a 1d array.  <-- this because
+	// this is intended to increment through the other dimensions.
+	// It increments backwards, i.e. second-to-last dim first, then 
+	// third-to-last, etc.
+	if (ndim<2) {
+		return 0;
+	}
+	//int dim = ndim-2;
+	int dim = ndim-1;
+	int rollover_last = 1;
+	int rollover_next = 0;
+	int rollover_count = 0;
+	while (dim>=0) {
+		if (dim != axis) {
+			if ((inds[dim]==(dims[dim]-1))&&(rollover_last==1)) {
+				rollover_next = 1;
+				rollover_count++;
+			}
+			if (rollover_last==1) {
+				inds[dim] = (inds[dim] + 1)% dims[dim];
+			}
+			rollover_last = rollover_next;
+			rollover_next = 0;
+		}
+		dim--;
+	}
+	if (rollover_count == (ndim-1)) {
+		return 0;
+	}
+	return 1;
+}
+PyObject *pulse_break_up(npy_uint32 p_start, npy_uint32 p_stop, npy_uint32 p_split1, npy_uint32 p_split2) {
+	// given a p_start, p_stop, p_split1, p_split2, produce a list of two-element lists, with the
+	// following conditions:
+	//
+	// if p_split1=p_split2=0, returns [[p_start, p_stop]] (i.e. list with one two-element list)
+	//
+	// if p_split2=0 and p_start < p_split1 < p_stop, returns [[p_start, p_split1],[p_split1+1, p_stop]]
+	// if p_split1 and p_split2 are both nonzero, return
+	//		[[p_start, p_split1],[p_split1+1, p_split2],[p_split2+1, p_stop]]
+	PyObject *out_list = PyList_New(0);
+	PyObject *o_start = PyArray_Scalar(&p_start, PyArray_DescrFromType(NPY_UINT32), NULL);
+	PyObject *o_stop  = PyArray_Scalar(&p_stop,  PyArray_DescrFromType(NPY_UINT32), NULL);
+	PyObject *list_item = PyList_New(2);
+	
+	PyList_SetItem(list_item, 0, o_start);
+	if ((p_split1==0)&&(p_split2==0)) {
+		PyList_SetItem(list_item, 1, o_stop);
+		PyList_Append(out_list, list_item);
+		Py_DECREF(list_item);
+	} else if ((p_split1>0) && (p_split2==0)){
+		npy_uint32 p_split1s = p_split1 + 1;
+		PyObject *o_split1  = PyArray_Scalar((void *)(&p_split1),  PyArray_DescrFromType(NPY_UINT32), NULL);
+		PyObject *o_split1s = PyArray_Scalar((void *)(&p_split1s), PyArray_DescrFromType(NPY_UINT32), NULL);
+		
+		PyList_SetItem(list_item, 1, o_split1);
+		PyList_Append(out_list, list_item);
+		Py_DECREF(list_item);
+		
+		list_item = PyList_New(2);
+		PyList_SetItem(list_item, 0, o_split1s);
+		PyList_SetItem(list_item, 1, o_stop);
+		PyList_Append(out_list, list_item);
+		Py_DECREF(list_item);
+	} else if ((p_split2>0) && (p_split1==0)){
+		npy_uint32 p_split2s = p_split2 + 1;
+		PyObject *o_split2  = PyArray_Scalar((void *)(&p_split2),  PyArray_DescrFromType(NPY_UINT32), NULL);
+		PyObject *o_split2s = PyArray_Scalar((void *)(&p_split2s), PyArray_DescrFromType(NPY_UINT32), NULL);
+		
+		PyList_SetItem(list_item, 1, o_split2);
+		PyList_Append(out_list, list_item);
+		Py_DECREF(list_item);
+		
+		list_item = PyList_New(2);
+		PyList_SetItem(list_item, 0, o_split2s);
+		PyList_SetItem(list_item, 1, o_stop);
+		PyList_Append(out_list, list_item);
+		Py_DECREF(list_item);
+	} else if ((p_split1>0)&&(p_split2>p_split1)) {
+		npy_uint32 p_split1s = p_split1 + 1;
+		npy_uint32 p_split2s = p_split2 + 1;
+		PyObject *o_split1  = PyArray_Scalar((void *)(&p_split1),  PyArray_DescrFromType(NPY_UINT32), NULL);
+		PyObject *o_split1s = PyArray_Scalar((void *)(&p_split1s), PyArray_DescrFromType(NPY_UINT32), NULL);
+		PyObject *o_split2  = PyArray_Scalar((void *)(&p_split2),  PyArray_DescrFromType(NPY_UINT32), NULL);
+		PyObject *o_split2s = PyArray_Scalar((void *)(&p_split2s), PyArray_DescrFromType(NPY_UINT32), NULL);
+		
+		PyList_SetItem(list_item, 1, o_split1);
+		PyList_Append(out_list, list_item);
+		Py_DECREF(list_item);
+		
+		list_item = PyList_New(2);
+		PyList_SetItem(list_item, 0, o_split1s);
+		PyList_SetItem(list_item, 1, o_split2);
+		PyList_Append(out_list, list_item);
+		Py_DECREF(list_item);
+		
+		list_item = PyList_New(2);
+		PyList_SetItem(list_item, 0, o_split2s);
+		PyList_SetItem(list_item, 1, o_stop);
+		PyList_Append(out_list, list_item);
+		Py_DECREF(list_item);
+	}
+	return out_list;
+}
+/*
+Claude gives two options for list.extend in C:
+1:
+PyObject *list1, *list2;  // list1.extend(list2)
+
+Py_ssize_t size = PyList_Size(list2);
+for (Py_ssize_t i = 0; i < size; i++) {
+    PyObject* item = PyList_GetItem(list2, i);  // Borrowed reference
+    PyList_Append(list1, item);
+}
+2:
+PyObject *list1, *list2;
+
+PyObject* result = PySequence_InPlaceConcat(list1, list2);
+Py_XDECREF(result);  // InPlaceConcat returns a new reference to list1
+3:
+Py_ssize_t list1_size = PyList_Size(list1);
+PyList_SetSlice(list1, list1_size, list1_size, list2);
+*/
+/* algorithm in a pulse, for each sample:
+goto d_max
+step left
+if d < min(4%, 40), increment qc
+if d >= min(4%, 40) or p_start is reached,
+	if qc > quiet_samples
+		p_end is current sample + qc
+		new pulse created with p_start = current sample + qc and original p_end
+		qc = 0
+go to d_max
+step right
+if d < min(4%, 40), increment qc
+if d >= min(4%, 40) or p_end is reached,
+	if qc > quiet_samples
+		p_end is current sample - qc
+		new pulse created with p_start = current sample - qc and original p_end
+*/
+static PyObject *meth_split_pulses(PyObject *self, PyObject *args, PyObject *kwargs) {
+	// call signature:
+	// p2_darray, p2_sarray = split_pulses(p_darray, p_sarray, d_chsum, amp_frac=0.04, quiet_samples=50)
+	// p_darray is 2xn array
+	// p_sarray is 1d array  
+	// d_chsum is n_evt x n_sample (2d) array
+	PyObject *obj_da, *obj_sa, *obj_d; // pulse darray, pulse sarray, sum signal
+	npy_float64 amp_frac = 0.04;
+	npy_float64 amp_max = 40.;
+	npy_intp quiet_samples = 50;
+	npy_intp buffer_samples = 5;
+	// no axis... maybe later
+	static char *keywords[] = {"", "", "", "amp_frac", "amp_max", "quiet_samples","buffer_samples", NULL};
+	if (!PyArg_ParseTupleAndKeywords(args, kwargs, "OOO|ddll", keywords,
+		&obj_da, &obj_sa, &obj_d, 
+		&amp_frac, &amp_max, &quiet_samples, &buffer_samples)) {
+		return NULL;
+	}
+	PyArrayObject *nd_da = (PyArrayObject *)PyArray_FROM_OTF(obj_da, NPY_UINT32, 0);
+	PyArrayObject *nd_sa = (PyArrayObject *)PyArray_FROM_OTF(obj_sa, NPY_UINT16, 0);
+	PyArrayObject *nd_d = (PyArrayObject *)PyArray_FROM_OTF(obj_d, NPY_FLOAT64, 0);
+	
+	npy_uint32 *el_da;
+	npy_uint16 *el_sa;
+	npy_float64 *el_d;
+	
+	// each sarray element is an event... loop over events, i.e. rows of nd_d
+	int ndim_d = PyArray_NDIM(nd_d);
+	npy_intp *dims = PyArray_DIMS(nd_d);
+	int nevt = dims[0]; // hard-coding that zeroth dimension is num events
+	int nsamp = dims[1]; // hard-coding that oneth dimension is num samples
+	npy_uint16 *n_pulse;
+	npy_uint32 p_start, p_stop, p_split1, p_split2;
+	PyObject *bnd_list = PyList_New(0); // the outer list that will hold one nested list per event
+	PyObject *evt_bnd = PyList_New(0); // the inner list that will hold a variable number of 2-element lists
+	Py_DECREF(evt_bnd); // need to define and release each event loop
+	npy_intp i_da = -1; // the index of the pulse in the darray
+	npy_float64 d_max = -9999.;
+	npy_intp d_max_pos = 0;
+	npy_uint32 qc = 0; // qc = "quiet count"
+	npy_bool in_quiet = NPY_FALSE;
+	npy_float64 quiet_thresh;
+	PyObject *split_list;
+	// loop over events
+	for (npy_intp ie=0; ie<nevt; ie++) {
+		n_pulse = (npy_uint16 *)PyArray_GETPTR1(nd_sa, ie);
+		evt_bnd = PyList_New(0);
+		// loop over existing pulses
+		for (npy_intp ip=0; ip<*n_pulse; ip++) {
+			d_max = -9999.;
+			i_da++;
+			p_start = *((npy_intp *)PyArray_GETPTR2(nd_da, 0, i_da));
+			p_stop  = *((npy_intp *)PyArray_GETPTR2(nd_da, 1, i_da));
+			
+			// first, find the max value
+			for (npy_intp i_samp=p_start; i_samp<=p_stop; i_samp++) {
+				el_d = (npy_float64 *)PyArray_GETPTR2(nd_d, ie, i_samp);
+				if (*el_d > d_max) {
+					d_max = *el_d;
+					d_max_pos = i_samp;
+				}
+			}
+			quiet_thresh = float64_min(amp_frac*d_max, amp_max);
+			// max of pulse is found and its location in the event
+			
+			// now loop through samples, from peak leftwards
+			qc = 0;
+			p_split1 = 0;
+			p_split2 = 0;
+			in_quiet = NPY_FALSE;
+			for (npy_intp i_samp=d_max_pos; i_samp>=intp_max(0, p_start); i_samp--) {
+				el_d = (npy_float64 *)PyArray_GETPTR2(nd_d, ie, i_samp);
+				if (*el_d < quiet_thresh) {
+					in_quiet = NPY_TRUE;
+					qc++;
+					// do the pulse thing here
+					if (qc >= quiet_samples) {
+						p_split1 = i_samp + qc - buffer_samples;
+						break;
+					}
+				} else {
+					if (in_quiet == NPY_TRUE) {
+						in_quiet = NPY_FALSE;
+						qc = 0;
+					}
+				}
+			}
+			
+			// now loop through samples, from peak rightwards
+			qc = 0;
+			in_quiet = NPY_FALSE;
+			for (npy_intp i_samp=d_max_pos; i_samp<=intp_min(nsamp, p_stop); i_samp++) {
+				el_d = (npy_float64 *)PyArray_GETPTR2(nd_d, ie, i_samp);
+				if (*el_d < quiet_thresh) {
+					in_quiet = NPY_TRUE;
+					qc++;
+					if (qc >= quiet_samples) {
+						p_split2 = i_samp - qc + buffer_samples;
+						break;
+					}
+				} else {
+					if (in_quiet == NPY_TRUE) {
+						in_quiet = NPY_FALSE;
+						qc = 0;
+					}
+				}
+			}
+			
+			split_list = pulse_break_up(p_start, p_stop, p_split1, p_split2);
+			PySequence_InPlaceConcat(evt_bnd, split_list);
+			Py_DECREF(evt_bnd);
+			Py_DECREF(split_list);
+		}
+		PyList_Append(bnd_list, evt_bnd);
+		Py_DECREF(evt_bnd);
+	}
+	
+	
+	Py_DECREF(nd_da);
+	Py_DECREF(nd_sa);
+	Py_DECREF(nd_d);
+	return bnd_list;
+}
+// for all these per-pulse base calcs, inputs need to be raw waveforms and pulse bounds
+static PyObject *meth_get_pA(PyObject *self, PyObject *args) {
+	// calc pulse area on ch_sum
+	// input: ch_sum (nevt x nsamp ndarray), p_bnds-darray (2 x n_pulses), p_bnds-sarray (n_evt)
+	// output: pA-darray (n_pulses, float64)
+	PyObject *obj_d, *obj_da, *obj_sa;
+	if (!PyArg_ParseTuple(args, "OOO", &obj_d, &obj_da, &obj_sa)) {
+		return NULL;
+	}
+	PyArrayObject *nd_d  = (PyArrayObject *)PyArray_FROM_OTF(obj_d, NPY_FLOAT64, 0);
+	PyArrayObject *nd_da = (PyArrayObject *)PyArray_FROM_OTF(obj_da, NPY_UINT32, 0);
+	PyArrayObject *nd_sa = (PyArrayObject *)PyArray_FROM_OTF(obj_sa, NPY_UINT16, 0);
+	int ndim_d = PyArray_NDIM(nd_d);
+	if (ndim_d != 2) {
+		PyErr_SetString(PyExc_ValueError, "pulse data must be 2d");
+	}
+	npy_intp *dims_d = PyArray_DIMS(nd_d);
+	npy_intp n_evt = dims_d[0];
+	int ndim_da = PyArray_NDIM(nd_da);
+	npy_intp *dims_da = PyArray_DIMS(nd_da);
+	npy_intp num_pulse_tot = dims_da[1];
+	npy_intp dims_new_darray[1];
+	dims_new_darray[0] = num_pulse_tot;
+	PyArrayObject *nd_new_darray = (PyArrayObject *)PyArray_EMPTY(1, dims_new_darray, NPY_FLOAT64, NPY_CORDER);
+	npy_uint16 *el_sa;
+	npy_uint32 *el_da1, *el_da2;
+	npy_float64 *el_d, *el_newda;
+	
+	npy_uint32 p_count = 0;
+	
+	npy_float64 f_sum = 0.;
+	// loop over events
+	for (npy_intp ie=0; ie<n_evt; ie++) {
+		el_sa = (npy_uint16 *)PyArray_GETPTR1(nd_sa, ie);
+		
+		//loop over pulses
+		for (npy_uint16 ip=0; ip<*el_sa; ip++) {
+			el_da1 = (npy_uint32 *)PyArray_GETPTR2(nd_da, 0, p_count);
+			el_da2 = (npy_uint32 *)PyArray_GETPTR2(nd_da, 1, p_count);
+			f_sum = 0.;
+			//loop over samples in a pulse
+			for (npy_uint32 i_samp=*el_da1; i_samp<=*el_da2; i_samp++) {
+				el_d = (npy_float64 *)PyArray_GETPTR2(nd_d, ie, i_samp);
+				f_sum += *el_d;
+			}
+			el_newda = (npy_float64 *)PyArray_GETPTR1(nd_new_darray, p_count);
+			*el_newda = f_sum;
+			p_count++;
+		}
+	}
+	Py_DECREF(nd_d);
+	Py_DECREF(nd_da);
+	Py_DECREF(nd_sa);
+	return (PyObject *)nd_new_darray;
+}
+
+static PyObject *meth_get_pA_ch(PyObject *self, PyObject *args) {
+	// calc pulse area on each channel
+	// input: ch (nevt x nch x nsamp ndarray), p_bnds-darray (2 x n_pulses), p_bnds-sarray (n_evt)
+	// output: pA-darray (n_ch x n_pulses, float64)
+	PyObject *obj_d, *obj_da, *obj_sa;
+	if (!PyArg_ParseTuple(args, "OOO", &obj_d, &obj_da, &obj_sa)) {
+		return NULL;
+	}
+	PyArrayObject *nd_d  = (PyArrayObject *)PyArray_FROM_OTF(obj_d, NPY_FLOAT64, 0);
+	PyArrayObject *nd_da = (PyArrayObject *)PyArray_FROM_OTF(obj_da, NPY_UINT32, 0);
+	PyArrayObject *nd_sa = (PyArrayObject *)PyArray_FROM_OTF(obj_sa, NPY_UINT16, 0);
+	int ndim_d = PyArray_NDIM(nd_d);
+	if (ndim_d != 3) {
+		PyErr_SetString(PyExc_ValueError, "pulse data must be 3d");
+	}
+	npy_intp *dims_d = PyArray_DIMS(nd_d);
+	npy_intp n_evt = dims_d[0];
+	npy_intp n_ch = dims_d[1];
+	int ndim_da = PyArray_NDIM(nd_da);
+	npy_intp *dims_da = PyArray_DIMS(nd_da);
+	npy_intp num_pulse_tot = dims_da[1];
+	npy_intp dims_new_darray[2];
+	dims_new_darray[0] = n_ch;
+	dims_new_darray[1] = num_pulse_tot;
+	PyArrayObject *nd_new_darray = (PyArrayObject *)PyArray_EMPTY(2, dims_new_darray, NPY_FLOAT64, NPY_CORDER);
+	npy_uint16 *el_sa;
+	npy_uint32 *el_da1, *el_da2;
+	npy_float64 *el_d, *el_newda;
+	
+	npy_uint32 p_count = 0;
+	
+	npy_float64 f_sum = 0.;
+	// loop over events
+	for (npy_intp ie=0; ie<n_evt; ie++) {
+		el_sa = (npy_uint16 *)PyArray_GETPTR1(nd_sa, ie);
+		
+		//loop over pulses
+		for (npy_uint16 ip=0; ip<*el_sa; ip++) {
+			el_da1 = (npy_uint32 *)PyArray_GETPTR2(nd_da, 0, p_count);
+			el_da2 = (npy_uint32 *)PyArray_GETPTR2(nd_da, 1, p_count);
+			// loop over channels
+			for (npy_intp ich=0; ich<n_ch; ich++) {
+				f_sum = 0.;
+				//loop over samples in a pulse
+				for (npy_uint32 i_samp=*el_da1; i_samp<=*el_da2; i_samp++) {
+					el_d = (npy_float64 *)PyArray_GETPTR3(nd_d, ie, ich, i_samp);
+					f_sum += *el_d;
+				}
+				el_newda = (npy_float64 *)PyArray_GETPTR2(nd_new_darray, ich, p_count);
+				*el_newda = f_sum;
+			}
+			p_count++;
+		}
+	}
+	Py_DECREF(nd_d);
+	Py_DECREF(nd_da);
+	Py_DECREF(nd_sa);
+	return (PyObject *)nd_new_darray;
+}
+
+static PyObject *meth_get_pH_ch(PyObject *self, PyObject *args) {
+	// calc pulse area on each channel
+	// input: ch (nevt x nch x nsamp ndarray), p_bnds-darray (2 x n_pulses), p_bnds-sarray (n_evt)
+	// output: pA-darray (n_ch x n_pulses, float64)
+	PyObject *obj_d, *obj_da, *obj_sa;
+	if (!PyArg_ParseTuple(args, "OOO", &obj_d, &obj_da, &obj_sa)) {
+		return NULL;
+	}
+	PyArrayObject *nd_d  = (PyArrayObject *)PyArray_FROM_OTF(obj_d, NPY_FLOAT64, 0);
+	PyArrayObject *nd_da = (PyArrayObject *)PyArray_FROM_OTF(obj_da, NPY_UINT32, 0);
+	PyArrayObject *nd_sa = (PyArrayObject *)PyArray_FROM_OTF(obj_sa, NPY_UINT16, 0);
+	int ndim_d = PyArray_NDIM(nd_d);
+	if (ndim_d != 3) {
+		PyErr_SetString(PyExc_ValueError, "pulse data must be 3d");
+	}
+	npy_intp *dims_d = PyArray_DIMS(nd_d);
+	npy_intp n_evt = dims_d[0];
+	npy_intp n_ch = dims_d[1];
+	int ndim_da = PyArray_NDIM(nd_da);
+	npy_intp *dims_da = PyArray_DIMS(nd_da);
+	npy_intp num_pulse_tot = dims_da[1];
+	npy_intp dims_new_darray[2];
+	dims_new_darray[0] = n_ch;
+	dims_new_darray[1] = num_pulse_tot;
+	PyArrayObject *nd_new_darray = (PyArrayObject *)PyArray_EMPTY(2, dims_new_darray, NPY_FLOAT64, NPY_CORDER);
+	npy_uint16 *el_sa;
+	npy_uint32 *el_da1, *el_da2;
+	npy_float64 *el_d, *el_newda;
+	
+	npy_uint32 p_count = 0;
+	
+	npy_float64 f_max = -999999.;
+	// loop over events
+	for (npy_intp ie=0; ie<n_evt; ie++) {
+		el_sa = (npy_uint16 *)PyArray_GETPTR1(nd_sa, ie);
+		
+		//loop over pulses
+		for (npy_uint16 ip=0; ip<*el_sa; ip++) {
+			el_da1 = (npy_uint32 *)PyArray_GETPTR2(nd_da, 0, p_count);
+			el_da2 = (npy_uint32 *)PyArray_GETPTR2(nd_da, 1, p_count);
+			// loop over channels
+			for (npy_intp ich=0; ich<n_ch; ich++) {
+				f_max = -999999.;
+				//loop over samples in a pulse
+				for (npy_uint32 i_samp=*el_da1; i_samp<=*el_da2; i_samp++) {
+					el_d = (npy_float64 *)PyArray_GETPTR3(nd_d, ie, ich, i_samp);
+					if (*el_d > f_max) {
+						f_max = *el_d;
+					}
+				}
+				el_newda = (npy_float64 *)PyArray_GETPTR2(nd_new_darray, ich, p_count);
+				*el_newda = f_max;
+			}
+			p_count++;
+		}
+	}
+	Py_DECREF(nd_d);
+	Py_DECREF(nd_da);
+	Py_DECREF(nd_sa);
+	return (PyObject *)nd_new_darray;
+}
+
+
+static PyObject *meth_get_pH(PyObject *self, PyObject *args) {
+	// calc pulse area on ch_sum
+	// input: ch_sum (nevt x nsamp ndarray), p_bnds-darray (2 x n_pulses), p_bnds-sarray (n_evt)
+	// output: pA-darray (n_pulses, float64)
+	PyObject *obj_d, *obj_da, *obj_sa;
+	if (!PyArg_ParseTuple(args, "OOO", &obj_d, &obj_da, &obj_sa)) {
+		return NULL;
+	}
+	PyArrayObject *nd_d  = (PyArrayObject *)PyArray_FROM_OTF(obj_d, NPY_FLOAT64, 0);
+	PyArrayObject *nd_da = (PyArrayObject *)PyArray_FROM_OTF(obj_da, NPY_UINT32, 0);
+	PyArrayObject *nd_sa = (PyArrayObject *)PyArray_FROM_OTF(obj_sa, NPY_UINT16, 0);
+	int ndim_d = PyArray_NDIM(nd_d);
+	if (ndim_d != 2) {
+		PyErr_SetString(PyExc_ValueError, "pulse data must be 2d");
+	}
+	npy_intp *dims_d = PyArray_DIMS(nd_d);
+	npy_intp n_evt = dims_d[0];
+	int ndim_da = PyArray_NDIM(nd_da);
+	npy_intp *dims_da = PyArray_DIMS(nd_da);
+	npy_intp num_pulse_tot = dims_da[1];
+	npy_intp dims_new_darray[1];
+	dims_new_darray[0] = num_pulse_tot;
+	PyArrayObject *nd_new_darray = (PyArrayObject *)PyArray_EMPTY(1, dims_new_darray, NPY_FLOAT64, NPY_CORDER);
+	npy_uint16 *el_sa;
+	npy_uint32 *el_da1, *el_da2;
+	npy_float64 *el_d, *el_newda;
+	
+	npy_uint32 p_count = 0;
+	
+	npy_float64 f_max = 0.;
+	// loop over events
+	for (npy_intp ie=0; ie<n_evt; ie++) {
+		el_sa = (npy_uint16 *)PyArray_GETPTR1(nd_sa, ie);
+		
+		//loop over pulses
+		for (npy_uint16 ip=0; ip<*el_sa; ip++) {
+			el_da1 = (npy_uint32 *)PyArray_GETPTR2(nd_da, 0, p_count);
+			el_da2 = (npy_uint32 *)PyArray_GETPTR2(nd_da, 1, p_count);
+			f_max = 0.;
+			//loop over samples in a pulse
+			for (npy_uint32 i_samp=*el_da1; i_samp<=*el_da2; i_samp++) {
+				el_d = (npy_float64 *)PyArray_GETPTR2(nd_d, ie, i_samp);
+				if (*el_d > f_max) {
+					f_max += *el_d;
+				}
+			}
+			el_newda = (npy_float64 *)PyArray_GETPTR1(nd_new_darray, p_count);
+			*el_newda = f_max;
+			p_count++;
+		}
+	}
+	Py_DECREF(nd_d);
+	Py_DECREF(nd_da);
+	Py_DECREF(nd_sa);
+	return (PyObject *)nd_new_darray;
+}
+
+static PyObject *meth_get_aft(PyObject *self, PyObject *args, PyObject *kwargs) {
+	PyObject *obj_d, *obj_da, *obj_sa;
+	npy_float64 area_frac=0.5;
+	static char *keywords[] = {"","","","area_frac", NULL};
+	if (!PyArg_ParseTupleAndKeywords(args, kwargs, "OOO|d", keywords,
+		&obj_d, &obj_da, &obj_sa, &area_frac)) {
+		return NULL;
+	}
+	PyArrayObject *nd_d  = (PyArrayObject *)PyArray_FROM_OTF(obj_d, NPY_FLOAT64, 0);
+	PyArrayObject *nd_da = (PyArrayObject *)PyArray_FROM_OTF(obj_da, NPY_UINT32, 0);
+	PyArrayObject *nd_sa = (PyArrayObject *)PyArray_FROM_OTF(obj_sa, NPY_UINT16, 0);
+	
+	int ndim_d = PyArray_NDIM(nd_d);
+	if (ndim_d != 2) {
+		PyErr_SetString(PyExc_ValueError, "pulse data must be 2d");
+	}
+	npy_intp *dims_d = PyArray_DIMS(nd_d);
+	npy_intp n_evt = dims_d[0];
+	int ndim_da = PyArray_NDIM(nd_da);
+	npy_intp *dims_da = PyArray_DIMS(nd_da);
+	npy_intp num_pulse_tot = dims_da[1];
+	npy_intp dims_new_darray[1];
+	dims_new_darray[0] = num_pulse_tot;
+	PyArrayObject *nd_new_darray = (PyArrayObject *)PyArray_EMPTY(1, dims_new_darray, NPY_FLOAT64, NPY_CORDER);
+	npy_uint16 *el_sa;
+	npy_uint32 *el_da1, *el_da2;
+	npy_float64 *el_d, *el_newda;
+	
+	npy_uint32 p_count = 0;
+	
+	npy_float64 f_sum = 0.;
+	npy_float64 af_last, af_current;
+	npy_intp ii_samp;
+	// loop over events
+	for (npy_intp ie=0; ie<n_evt; ie++) {
+		el_sa = (npy_uint16 *)PyArray_GETPTR1(nd_sa, ie);
+		
+		//loop over pulses
+		for (npy_uint16 ip=0; ip<*el_sa; ip++) {
+			el_da1 = (npy_uint32 *)PyArray_GETPTR2(nd_da, 0, p_count);
+			el_da2 = (npy_uint32 *)PyArray_GETPTR2(nd_da, 1, p_count);
+			f_sum = 0.;
+			//loop over samples in a pulse
+			for (npy_uint32 i_samp=*el_da1; i_samp<=*el_da2; i_samp++) {
+				el_d = (npy_float64 *)PyArray_GETPTR2(nd_d, ie, i_samp);
+				f_sum += *el_d;
+			}
+			//go back and start over, quitting when aft is met
+			af_last = 0.;
+			af_current=0.;
+			ii_samp = *el_da1;
+			while (af_current < (area_frac*f_sum)) {
+				el_d = (npy_float64 *)PyArray_GETPTR2(nd_d, ie, ii_samp);
+				af_last = af_current;
+				af_current += *el_d;
+				ii_samp++;
+			}
+			el_newda = (npy_float64 *)PyArray_GETPTR1(nd_new_darray, p_count);
+			// interpolate the position
+			if ((af_current-af_last)!=0) {
+				*el_newda = (npy_float64)ii_samp - 1. + (area_frac*f_sum-af_last)/(af_current-af_last);
+			} else {
+				*el_newda = (npy_float64)ii_samp;
+			}
+			p_count++;
+		}
+	}
+	Py_DECREF(nd_d);
+	Py_DECREF(nd_da);
+	Py_DECREF(nd_sa);
+	return (PyObject *)nd_new_darray;
+}
+/*
+static PyObject *meth_get_pH_ch(PyObject *self, PyObject *args, PyObject *kwargs) {
+	// calc pulse area on ch_sum
+}
+static PyObject *meth_get_pA_times(PyObject *self, PyObject *args, PyObject *kwargs) {
+	// pulse area fractions on ch-sum waveform
+}
+static PyObject *meth_get_pH_times(PyObject *self, PyObject *args, PyObject *kwargs) {
+	// pulse height fractions on ch-sum waveform
+}
+static PyObject *meth_get_nfold(PyObject *self, PyObject *args) {
+	// for each pulse, return the n-fold coincidence... should easy with the podded
+	// per-channel waveforms
+}
+*/
+static PyObject *meth_pod_boolean(PyObject *self, PyObject *args, PyObject *kwargs) {
+	// usage: on individual channels and events, so take in a numpy array of dim
+	// n_evt x n_ch x n_samp, though it doesn't need to be that way.  The 'n_samp'
+	// dimension is whichever one is given by keyword 'axis', the last dimension
+	// by default.
+	// call signature: pod_boolean(s_in, thresh, prepod_samples, postpod_samples, axis)
+	// with thresh, prepod_samples, postpod_samples, and axis being keywords
+	// thresh is in adcc
+	PyObject *obj_i;
+	npy_float64 thresh = 3.;
+	npy_intp prepod_samples = 10;
+	npy_intp postpod_samples = 10;
+	long axis = -1;
+	static char *keywords[] = {"", "thresh", "prepod_samples", "postpod_samples", "axis", NULL};
+	if (!PyArg_ParseTupleAndKeywords(args, kwargs, "O|dlll", keywords,
+		&obj_i, &thresh, &prepod_samples, &postpod_samples, &axis)) {
+		return NULL;
+	}
+	
+	PyArrayObject *nd_i = (PyArrayObject *)PyArray_FROM_OTF(obj_i, NPY_FLOAT64, 0);
+	int ndim = PyArray_NDIM(nd_i);
+	npy_intp *dims = PyArray_DIMS(nd_i);
+	long raxis = get_axis(axis, ndim);
+	PyArrayObject *nd_o = (PyArrayObject *)PyArray_EMPTY(ndim, dims, NPY_BOOL, 0);
+	
+	npy_intp inds[ndim];
+	for (int k=0; k<ndim; k++) {
+		inds[k] = 0;
+	}
+	
+	npy_float64 *i_el;
+	npy_bool *o_el;
+	npy_bool in_pod, in_prepod, in_postpod;
+	npy_intp postpod_count = 0;
+	do {
+		in_pod = NPY_FALSE;
+		in_prepod = NPY_FALSE;
+		in_postpod = NPY_FALSE;
+		postpod_count = 0;
+		for (npy_intp ii=0; ii<dims[raxis]; ii++) {
+			inds[raxis] = ii;
+			i_el = (npy_float64 *)PyArray_GetPtr(nd_i, inds);
+			o_el = (npy_bool *)PyArray_GetPtr(nd_o, inds);
+			if (in_pod == NPY_FALSE) {
+				*o_el = NPY_FALSE;
+				if (*i_el >= thresh) {
+					in_pod = NPY_TRUE;
+					in_prepod = NPY_TRUE;
+					in_postpod = NPY_FALSE;
+				}
+			} else {
+				if (in_prepod == NPY_TRUE) {
+					// step back prepod_samples and set those elements to True
+					for (npy_intp k=intp_max(0, ii-prepod_samples); k<=ii; k++) {
+						inds[raxis] = k;
+						o_el = (npy_bool *)PyArray_GetPtr(nd_o, inds);
+						*o_el = NPY_TRUE;
+					}
+					in_prepod = NPY_FALSE;
+				}
+				*o_el = NPY_TRUE;
+				if (*i_el < thresh) {
+					in_postpod = NPY_TRUE;
+				}
+				if (in_postpod == NPY_TRUE) {
+					if (*i_el >= thresh) {
+						postpod_count = -1;
+						in_postpod = NPY_FALSE;
+					}
+					if (postpod_count >= postpod_samples) {
+						in_pod = NPY_FALSE;
+						in_postpod = NPY_FALSE;
+						in_prepod = NPY_FALSE;
+						postpod_count = 0;
+					}
+					if (in_postpod == NPY_TRUE) {
+						postpod_count++;
+					}
+				}
+				
+			}
+		}
+	} while (inc_inds(inds, dims, ndim, raxis));
+	
+	Py_DECREF(nd_i);
+	return (PyObject *)nd_o;
+}
+
+static PyObject *meth_baseline_update(PyObject *self, PyObject *args, PyObject *kwargs) {
+	// should be doing this with a row-by-row, but not set up to do that right now
+	static char *keywords[] = {"","","alpha","n_start","axis",NULL};
+	PyObject *obj_i, *obj_b;
+	long axis=-1;
+	npy_float64 alpha=0.01;
+	npy_intp n_start = 100;
+	if (!PyArg_ParseTupleAndKeywords(args, kwargs, "OO|dll", keywords,
+		&obj_i, &obj_b, &alpha, &n_start, &axis)) {
+		return NULL;
+	}
+	PyArrayObject *nd_i = (PyArrayObject *)PyArray_FROM_OTF(
+		obj_i, NPY_FLOAT64, 0);
+	PyArrayObject *nd_b = (PyArrayObject *)PyArray_FROM_OTF(
+		obj_b, NPY_BOOL, 0);
+	int ndim_i = PyArray_NDIM(nd_i);
+	int ndim_b = PyArray_NDIM(nd_b);
+	if (ndim_i != ndim_b) {
+		PyErr_SetString(PyExc_ValueError, "Signal and boolean arrays must be the same size");
+	}
+	
+	long raxis = get_axis(axis, ndim_i);
+	PyObject *nd_o = PyArray_NewLikeArray(nd_i, NPY_ANYORDER, NULL, 1);
+	npy_intp *dims = PyArray_DIMS(nd_i);
+	npy_intp inds[ndim_i];
+	for (int k=0; k<ndim_i; k++) {
+		inds[k] = 0;
+	}
+	npy_float64 *i_el, *o_el;
+	npy_bool *b_el;
+	npy_float64 last_bs;
+	npy_float64 init_sum=0.;
+	//last_bs = *i_el;
+	//print_dims(npy_intp *inds, npy_intp *dims, int ndim) {
+	int ii=0;
+	do {
+		ii++;
+		init_sum=0.;
+		for (npy_intp ind=0; ind<n_start; ind++) {
+			//inds[ndim_i-1] = ind;
+			inds[raxis] = ind;
+			i_el = (npy_float64 *)PyArray_GetPtr(nd_i, inds);
+			init_sum += *i_el;
+		}
+		last_bs = init_sum / ((npy_float64)n_start);
+		for (npy_intp ind=0; ind<dims[ndim_i-1]; ind++) {
+			//inds[ndim_i-1] = ind;
+			inds[raxis] = ind;
+			i_el = (npy_float64 *)PyArray_GetPtr(nd_i, inds);
+			b_el = (npy_bool *)PyArray_GetPtr(nd_b, inds);
+			o_el = (npy_float64 *)PyArray_GetPtr((PyArrayObject *)nd_o, inds);
+			if (*b_el == NPY_FALSE) {
+				*o_el = (*i_el)*alpha + last_bs*(1.-alpha);
+				last_bs = *o_el;
+			} else {
+				*o_el = last_bs;
+			}
+		}
+		//inds[ndim_i-1] = 0;
+		inds[raxis] = 0;
+	} while (inc_inds(inds, dims, ndim_i, raxis)&&(ii<5000000));
+	//} while (inc_inds(inds, dims, ndim_i));
+	if (ii>=5000000) {
+		printf("Warning: maximum iterations exceeded in baseline calculation\n");
+		fflush(stdout);
+	}
+	
+	Py_DECREF(nd_i);
+	Py_DECREF(nd_b);
+	return nd_o;
+}
+
+static PyObject *meth_pulse_bnds_from_thresh(PyObject *self, PyObject *args, PyObject *kwargs) {
+	// All I want to do here is take in a signal array and a boolean array of the same size
+	// that was derived with something like
+	// >> b_array = s_array > thresh
+	// and then return a list of lists that indicated the start and end sample of each pulse
+	// something like
+	//     [ [[4,10],[300,350]], [[6, 12],[488,1200],[1500,1550]] ]
+	// that is two events, the first event had two pulses, the second event had three pulses.
+	// So s_array here is assumed to be the sum over channels, and should really just be
+	// a 2d array.
+	// This function should go to the start of a bool-True island, find the max within the
+	// island, then step left until 5% of max, then step left by a buffer, then that is the
+	// left boundary of the pulse.  Do the same on the right side.  But have to keep track
+	// not to get overlapping pulses.
+	PyObject *obj_s, *obj_b;
+	long axis=-1;
+	npy_intp pre_buff = 10;
+	npy_intp post_buff = 10;
+	npy_float64 pmax_frac_thresh = 0.05;
+	static char *keywords[] = {"", "", "pre_buffer", "post_buffer", "frac_thresh", "axis", NULL};
+	if (!PyArg_ParseTupleAndKeywords(args, kwargs, "OO|lldl", keywords,
+		&obj_s, &obj_b, &pre_buff, &post_buff, &pmax_frac_thresh, &axis)) {
+			return NULL;
+		}
+	PyArrayObject *nd_s = (PyArrayObject *)PyArray_FROM_OTF(obj_s, NPY_FLOAT64, 0);
+	PyArrayObject *nd_b = (PyArrayObject *)PyArray_FROM_OTF(obj_b, NPY_BOOL, 0);
+	
+	int ndim_s = PyArray_NDIM(nd_s);
+	int ndim_b = PyArray_NDIM(nd_b);
+	if (ndim_s != ndim_b) {
+		PyErr_SetString(PyExc_ValueError, "Signal and boolean arrays must be the same size");
+	}
+	if (ndim_s != 2) {
+		PyErr_SetString(PyExc_ValueError, "Input array should be 2d");
+	}
+	
+	long raxis = get_axis(axis, ndim_s);
+	npy_intp *dims = PyArray_DIMS(nd_s);
+	
+	npy_intp inds[ndim_s];
+	for (int k=0; k<ndim_s; k++) {
+		inds[k] = 0;
+	}
+	PyObject *out_list = PyList_New(0);
+	PyObject *evt_list = PyList_New(0);
+	Py_DECREF(evt_list); // keep the pointer var but the list will be dynamically regenerated in the loop
+	PyObject *bnd_list = PyList_New(0);
+	Py_DECREF(bnd_list);
+	npy_float64 p_max= -999.;
+	npy_intp p_max_ind = 0;
+	npy_float64 *el_s;
+	npy_bool *el_b;
+	npy_intp last_bnd_max = 0;
+	//npt_intp ii = 0;
+	// loop over events (but more generic than that)
+	// print_dims(npy_intp *inds, npy_intp *dims, int ndim)
+	npy_bool first_evt = NPY_TRUE;
+	do {
+		//print_dims(inds, dims, ndim_s); fflush(stdout);
+		evt_list = PyList_New(0);
+		for (npy_intp ii=0; ii<dims[raxis]; ii++) {
+			inds[raxis] = ii;
+			el_b = (npy_bool *)PyArray_GetPtr(nd_b, inds);
+			if (first_evt == NPY_TRUE) {
+				//printf("FIRST EVENT: -- ");
+				//print_dims(inds, dims, ndim_s); fflush(stdout);
+				//printf("ii = %li, b_in = %i\n", ii, *el_b); fflush(stdout);
+			}
+			if (*el_b == NPY_TRUE) {
+				bnd_list = PyList_New(2);
+				p_max = -999.;
+				inds[raxis] = ii;
+				el_s = (npy_float64 *)PyArray_GetPtr(nd_s, inds);
+				while ((*el_b == NPY_TRUE)&&(ii<dims[raxis])) {
+					inds[raxis] = ii;
+					if (*el_s>p_max) {
+						p_max = *el_s;
+						p_max_ind = ii;
+					}
+					el_s = (npy_float64 *)PyArray_GetPtr(nd_s, inds);
+					el_b = (npy_bool *)PyArray_GetPtr(nd_b, inds);
+					ii++;
+				}
+				ii = p_max_ind;
+				inds[raxis] = ii;
+				el_s = (npy_float64 *)PyArray_GetPtr(nd_s, inds);
+				while ((*el_s > pmax_frac_thresh*p_max)&&(ii>last_bnd_max)) {
+					inds[raxis] = ii;
+					el_s = (npy_float64 *)PyArray_GetPtr(nd_s, inds);
+					ii--;
+				}
+				PyList_SetItem(bnd_list, 0, PyLong_FromLong(ii-pre_buff));
+				ii = p_max_ind;
+				inds[raxis] = ii;
+				el_s = (npy_float64 *)PyArray_GetPtr(nd_s, inds);
+				while ((*el_s > pmax_frac_thresh*p_max)&&(ii<dims[raxis])) {
+					inds[raxis] = ii;
+					el_s = (npy_float64 *)PyArray_GetPtr(nd_s, inds);
+					ii++;
+				}
+				PyList_SetItem(bnd_list, 1, PyLong_FromLong(ii+post_buff));
+				PyList_Append(evt_list, bnd_list);
+				Py_DECREF(bnd_list);
+				ii += post_buff;
+				last_bnd_max = ii;
+			}
+		}
+		PyList_Append(out_list, evt_list);
+		Py_DECREF(evt_list);
+		first_evt = NPY_FALSE;
+	} while (inc_inds(inds, dims, ndim_s, raxis));
+	
+	Py_DECREF(nd_s);
+	Py_DECREF(nd_b);
+	return out_list;
+}
+
+static PyObject *meth_oldget_pulse_quantities(PyObject *self, PyObject *args, PyObject *kwargs) {
+	static char *keywords[] = {"","","pulse_bs_avg","axis", NULL};
+	PyArrayObject *nd_i, *nd_b;
+	long axis = -1;
+	long pulse_bs_avg = 0; // Use this many samples at the beginning of each PULSE (not evt) to
+	                       // recalculate the baseline average.
+	if (!PyArg_ParseTupleAndKeywords(args, kwargs, "O&O&|ll", keywords,
+		PyArray_Converter, &nd_i,
+		PyArray_Converter, &nd_b,
+		&pulse_bs_avg, &axis)) {
+		return NULL;
+	}
+	PyObject *aux_arrays = PyTuple_New(1);
+	Py_INCREF(nd_b);
+	PyTuple_SetItem(aux_arrays, 0, (PyObject *)nd_b);
+	PyObject *optargs = PyTuple_New(1);
+	PyTuple_SetItem(optargs, 0, PyLong_FromLong(pulse_bs_avg));
+	PyObject *list_out;
+	list_out = rowbyrow_list(get_pulse_quantities_lrow, nd_i, axis, aux_arrays, optargs);
+	PyObject *dict_out = split_rowlist(list_out);
+	Py_DECREF(optargs);
+	Py_DECREF(aux_arrays);
+	Py_DECREF(nd_i);
+	Py_DECREF(nd_b);
+	Py_DECREF(list_out);
+	//return list_out;
+	return dict_out;
+}
+
 static PyObject *meth_exp_filt(PyObject *self, PyObject *args, PyObject *kwargs) {
 	static char *keywords[] = {"signal", "t0", "axis", NULL};
 	PyArrayObject *nd_s;
@@ -668,6 +1705,34 @@ static PyObject *meth_avebox(PyObject *self, PyObject *args, PyObject *kwargs) {
 	return nd_f;
 }
 
+static PyObject *meth_maxbox(PyObject *self, PyObject *args, PyObject *kwargs) {
+	static char *keywords[] = {"signal", "n", "axis", NULL};
+	PyArrayObject *nd_s;
+	//PyObject *n;
+	long n=1;
+	long axis=-1;
+	if (!PyArg_ParseTupleAndKeywords(args, kwargs, "O&|ll", keywords,
+		PyArray_Converter, &nd_s,
+		&n,
+		&axis)) {
+		return NULL;
+	}
+	if ((n%2)==0) {
+		PyErr_SetString(PyExc_ValueError, "Input 'n' must be an ODD number");
+	}
+	if (PyArray_TYPE(nd_s) != NPY_FLOAT64) {
+		PyErr_SetString(PyExc_TypeError, "Input array 's_raw' must be of dtype numpy.float64");
+	}
+	PyObject *nd_f = PyArray_NewLikeArray(nd_s, NPY_ANYORDER, NULL, 1);
+	PyObject *optargs = PyTuple_Pack(1, PyLong_FromLong(n));
+	Py_INCREF(nd_s);
+	Py_INCREF(nd_f);
+	rowbyrow_optargs(maxbox_row, (PyObject *)nd_s, nd_f, axis, optargs);
+	Py_DECREF(nd_s);
+	Py_DECREF(optargs);
+	return nd_f;
+}
+
 static PyObject *meth_forwardconv(PyObject *self, PyObject *args, PyObject *kwargs) {
 	static char *keywords[] = {"signal", "kernel", "axis", NULL};
 	PyArrayObject *nd_s, *nd_kern;
@@ -698,13 +1763,26 @@ static PyObject *meth_forwardconv(PyObject *self, PyObject *args, PyObject *kwar
 	Py_DECREF(nd_kern);
 	return nd_f;
 }
-
-static PyObject *meth_printbranch(PyObject *self, PyObject *Py_UNUSED(args)) {
-	printf("main branch\n");
-	fflush(stdout);
-	Py_RETURN_NONE;
-}
-
+/*
+static PyObject *meth_get_peak_bounds(PyObject *self, PyObject *args, PyObject *kwargs) {
+	// get_peak_bounds(y, thresh=0., axis=-1)
+	// axis tells which axis to look over as traces.
+	// usually this will be given as one trace per event (which is a sum over channels)
+	PyObject *obj_i;
+	long axis = -1L;
+	npy_float64 thresh=0.;
+	static char *keywords[] = {"", "thresh", "axis", NULL};
+	if (!PyArg_ParseTupleAndKeywords(args, kwargs, "O|dl", keywords,
+		&obj_i, &thresh, &axis)) {
+		return NULL;
+	}
+	PyArrayObject *nd_i = (PyArrayObject *)PyArray_FROM_OTF(obj_i, NPY_FLOAT64, 0);
+	
+	int ndim = PyArray_NDIM(nd_i);
+	long raxis = get_axis(axis, (npy_intp)ndim);
+	npy_intp *dims = PyArray_DIMS(nd_i);
+	
+}*/
 static PyObject *meth_find_peaks(PyObject *self, PyObject *args, PyObject *kwargs) {
 	static char *keywords[] = {"", "axis", "n", "thresh", NULL};
 	PyArrayObject *nd_i;
@@ -773,12 +1851,13 @@ static PyObject *meth_find_peaks(PyObject *self, PyObject *args, PyObject *kwarg
 	PyObject *sliceO;
 	PyObject *slice_tuple;
 	PyObject *RQ_array;
-	int r;
+	//int r;
 	for (npy_intp k=0; k<numKeys; k++){
 		sliceO = PySlice_New(PyLong_FromLong(k), NULL, PyLong_FromLong(numKeys));
 		slice_tuple = PyTuple_Pack(2, Py_Ellipsis, sliceO);
 		RQ_array = PyArray_Transpose((PyArrayObject *)PyObject_GetItem(nd_o, slice_tuple), NULL);
-		r = PyDict_SetItemString(RQ_dict, keys[k], PyArray_Squeeze((PyArrayObject *)RQ_array));
+		//r = PyDict_SetItemString(RQ_dict, keys[k], PyArray_Squeeze((PyArrayObject *)RQ_array));
+		PyDict_SetItemString(RQ_dict, keys[k], PyArray_Squeeze((PyArrayObject *)RQ_array));
 	}
 	
 	//Py_DECREF(nd_i); // <-- over decrefs the input
@@ -789,6 +1868,7 @@ static PyObject *meth_find_peaks(PyObject *self, PyObject *args, PyObject *kwarg
 	return RQ_dict;
 }
 
+
 /* ----------------- </MODULE FUNCTIONS> ----------------- */
 
 
@@ -796,6 +1876,16 @@ PyDoc_STRVAR(
 	avebox__doc__,
 	"avebox(s_raw, n, axis=-1)\n--\n\n"
 	"Apply a box average filter to a signal.\n"
+	" s_raw: raw signal.  Numpy array either 1d, or 2d.  If 2d,\n"
+	"        the signals will be filtered along axis.\n"
+	"     n: The number of samples in the box. n must be an ODD number\n"
+	"  axis: If s_raw is 2d, the filtering will occur along this axis.\n"
+	"        Default is axis=1, which means along the ROWS.\n"
+	"output: The filtered signal.  Will have the same size as s_raw.");
+PyDoc_STRVAR(
+	maxbox__doc__,
+	"maxbox(s_raw, n, axis=-1)\n--\n\n"
+	"Apply a box maximum filter to a signal.\n"
 	" s_raw: raw signal.  Numpy array either 1d, or 2d.  If 2d,\n"
 	"        the signals will be filtered along axis.\n"
 	"     n: The number of samples in the box. n must be an ODD number\n"
@@ -844,11 +1934,6 @@ PyDoc_STRVAR(
 	"different reduced quantities of each found pulse.");
 
 PyDoc_STRVAR(
-	printbranch__doc__,
-	"printbranch()\n--\n\n"
-	"Prints the [hard-coded] name of the test branch.");
-
-PyDoc_STRVAR(
 	ngdd_filt__doc__,
 	"ngdd_filt_mask(s_in, thresh=8., pre_samples_add=0, post_samples_add=10, axis=-1)\n--\n\n"
 	"Take the filtered result of a multidimensional array of raw data and\n"
@@ -875,14 +1960,85 @@ PyDoc_STRVAR(
 	"\n"
 	"Returns: nothing (acts on the input boolean array in place)");
 
+PyDoc_STRVAR(
+	oldget_pqs__doc,
+	"oldget_pulse_quantities(a, b, pulse_bs_avg=0, axis=-1)\n--\n\n"
+	"Get pulse quantities (e.g. area, height, etc.)\n"
+	"Inputs:\n"
+	"            a: Numpy array of dtype('float64') of raw waveforms.  Can be\n"
+	"               either a 1d (single) waveform) or 2d, where every\n"
+	"               individual waveform is along the axis given by the 'axis'\n"
+	"               keyword\n"
+	"            b: Numpy array of dtype('bool'), the same shape as 'a', that\n"
+	"               specifies the regions of pulses that have been found in\n"
+	"               input 'a'.  That is, in an individual waveform, 'b' will\n"
+	"               be mostly False, but a series of contiguous Trues\n"
+	"               indicates a pulse was found.  There may be several such\n"
+	"               regions (or none) in a given waveform.  This boolean array\n"
+	"               was probably made with function 'ngdd_filt_mask' in this\n"
+	"               module.\n"
+	" pulse_bs_avg: int, default=0.  The number of samples at the start of\n"
+	"               every pulse that is considered baseline, and is used to \n"
+	"               recalculate the baseline average for that individual pulse\n"
+	"               This must the same as what was given as the\n"
+	"               'pre_samples_add' keyword to 'ngdd_filt_mask'\n"
+	"         axis: int, default=-1.  The axis of the array along which\n"
+	"               individual waveforms run.  axis=-1 (the default) means the\n"
+	"               last dimension.");
+
+PyDoc_STRVAR(
+	bs_up__doc__,
+	"baseline_update(y, b, alpha=0.01, n_start=100, axis=-1)\n--\n\n"
+	"\n"
+	"Calculate a rolling updating-baseline estimate.  It only counts baseline\n"
+	"when the boolean array 'b' is False. 'b' is intended to indicated where\n"
+	"there are pulses: b is True where there is a pulse\n"
+	"\n"
+	"Inputs:\n"
+	"       y : Numpy array of waveforms.  Waveforms are assumed to run along the last\n"
+	"           axis.  y's dtype must be np.float64\n"
+	"       b : Numpy array indicating where there are pulses. Must be the same size+shape\n"
+	"           as y.  b's dtype must be bool\n"
+	"   alpha : (default 0.01) Timescale over which past baselines contribute, in units\n"
+	"           of 1/samples.  So alpha=0.01 is a sample constant of 100 samples.  If there\n"
+	"           is some exponential decay tail in the data, its timeconstant, converted to\n"
+	"           samples, should be used here (inverted)\n"
+	" n_start : (default is 100) The start of the baseline estimate is chosen as the average\n"
+	"           of the first n_start samples.\n"
+	"    axis : (default is -1) The axis over which an event runs. THIS INPUT IS CURRENTLY\n"
+	"           IGNORED.");
+
+PyDoc_STRVAR(
+	pbt__doc__,
+	"pulse_bnds_from_thresh(s_in, b_arr, pre_buffer=10, post_buffer=10, frac_thresh=0.05, axis=-1)\n--\n\n");
+PyDoc_STRVAR(
+	pod_bool__doc__,
+	"pod_boolean(s_in, thresh=3., prepod_samples=10, postpod_samples=10, axis=-1)\n--\n\n"
+	"Takes an array of waveforms and does podding based on keyword parameters.");
+PyDoc_STRVAR(
+	split_pulses__doc__,
+	"split_pulses(p_darray, p_sarray, chsum_array, amp_frac=0.04, amp_max=40., "
+	"quiet_samples=50, buffer_samples=5)\n--\n\n"
+	"Splits pulses when they need to be split");
+
 static PyMethodDef ldax_methods[] = {
 	{"avebox", (PyCFunction)meth_avebox,METH_VARARGS|METH_KEYWORDS, avebox__doc__},
+	{"maxbox", (PyCFunction)meth_maxbox,METH_VARARGS|METH_KEYWORDS, maxbox__doc__},
 	{"exp_filt",(PyCFunction)meth_exp_filt,METH_VARARGS|METH_KEYWORDS, exp_filt__doc__},
 	{"find_peaks",(PyCFunction)meth_find_peaks,METH_VARARGS|METH_KEYWORDS, find_peaks__doc__},
 	{"forwardconv",(PyCFunction)meth_forwardconv,METH_VARARGS|METH_KEYWORDS, forwardconv__doc__},
-	{"printbranch",meth_printbranch,METH_NOARGS,printbranch__doc__},
 	{"ngdd_filt_mask",(PyCFunction)meth_ngdd_filt_mask, METH_VARARGS|METH_KEYWORDS, ngdd_filt__doc__},
 	{"merge_islands",(PyCFunction)meth_merge_islands, METH_VARARGS|METH_KEYWORDS, merge_islands__doc__},
+	{"oldget_pulse_quantities",(PyCFunction)meth_oldget_pulse_quantities,METH_VARARGS|METH_KEYWORDS, oldget_pqs__doc},
+	{"baseline_update",(PyCFunction)meth_baseline_update,METH_VARARGS|METH_KEYWORDS,bs_up__doc__},
+	{"pulse_bnds_from_thresh",(PyCFunction)meth_pulse_bnds_from_thresh,METH_VARARGS|METH_KEYWORDS,pbt__doc__},
+	{"pod_boolean",(PyCFunction)meth_pod_boolean,METH_VARARGS|METH_KEYWORDS, pod_bool__doc__},
+	{"split_pulses",(PyCFunction)meth_split_pulses,METH_VARARGS|METH_KEYWORDS, split_pulses__doc__},
+	{"get_pA",meth_get_pA,METH_VARARGS, PyDoc_STR("--")},
+	{"get_pA_ch",meth_get_pA_ch,METH_VARARGS, PyDoc_STR("--")},
+	{"get_pH_ch",meth_get_pH_ch,METH_VARARGS, PyDoc_STR("--")},
+	{"get_pH",meth_get_pH,METH_VARARGS, PyDoc_STR("--")},
+	{"get_aft",(PyCFunction)meth_get_aft, METH_VARARGS|METH_KEYWORDS, PyDoc_STR("--")},
 	{NULL, NULL, 0, NULL}
 };
 
