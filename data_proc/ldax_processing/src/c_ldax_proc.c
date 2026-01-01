@@ -1138,10 +1138,137 @@ static PyObject *meth_get_pH_ch(PyObject *self, PyObject *args) {
 	return (PyObject *)nd_new_darray;
 }
 
-/*
-static PyObject *meth_get_pH(PyObject *self, PyObject *args, PyObject *kwargs) {
+
+static PyObject *meth_get_pH(PyObject *self, PyObject *args) {
 	// calc pulse area on ch_sum
+	// input: ch_sum (nevt x nsamp ndarray), p_bnds-darray (2 x n_pulses), p_bnds-sarray (n_evt)
+	// output: pA-darray (n_pulses, float64)
+	PyObject *obj_d, *obj_da, *obj_sa;
+	if (!PyArg_ParseTuple(args, "OOO", &obj_d, &obj_da, &obj_sa)) {
+		return NULL;
+	}
+	PyArrayObject *nd_d  = (PyArrayObject *)PyArray_FROM_OTF(obj_d, NPY_FLOAT64, 0);
+	PyArrayObject *nd_da = (PyArrayObject *)PyArray_FROM_OTF(obj_da, NPY_UINT32, 0);
+	PyArrayObject *nd_sa = (PyArrayObject *)PyArray_FROM_OTF(obj_sa, NPY_UINT16, 0);
+	int ndim_d = PyArray_NDIM(nd_d);
+	if (ndim_d != 2) {
+		PyErr_SetString(PyExc_ValueError, "pulse data must be 2d");
+	}
+	npy_intp *dims_d = PyArray_DIMS(nd_d);
+	npy_intp n_evt = dims_d[0];
+	int ndim_da = PyArray_NDIM(nd_da);
+	npy_intp *dims_da = PyArray_DIMS(nd_da);
+	npy_intp num_pulse_tot = dims_da[1];
+	npy_intp dims_new_darray[1];
+	dims_new_darray[0] = num_pulse_tot;
+	PyArrayObject *nd_new_darray = (PyArrayObject *)PyArray_EMPTY(1, dims_new_darray, NPY_FLOAT64, NPY_CORDER);
+	npy_uint16 *el_sa;
+	npy_uint32 *el_da1, *el_da2;
+	npy_float64 *el_d, *el_newda;
+	
+	npy_uint32 p_count = 0;
+	
+	npy_float64 f_max = 0.;
+	// loop over events
+	for (npy_intp ie=0; ie<n_evt; ie++) {
+		el_sa = (npy_uint16 *)PyArray_GETPTR1(nd_sa, ie);
+		
+		//loop over pulses
+		for (npy_uint16 ip=0; ip<*el_sa; ip++) {
+			el_da1 = (npy_uint32 *)PyArray_GETPTR2(nd_da, 0, p_count);
+			el_da2 = (npy_uint32 *)PyArray_GETPTR2(nd_da, 1, p_count);
+			f_max = 0.;
+			//loop over samples in a pulse
+			for (npy_uint32 i_samp=*el_da1; i_samp<=*el_da2; i_samp++) {
+				el_d = (npy_float64 *)PyArray_GETPTR2(nd_d, ie, i_samp);
+				if (*el_d > f_max) {
+					f_max += *el_d;
+				}
+			}
+			el_newda = (npy_float64 *)PyArray_GETPTR1(nd_new_darray, p_count);
+			*el_newda = f_max;
+			p_count++;
+		}
+	}
+	Py_DECREF(nd_d);
+	Py_DECREF(nd_da);
+	Py_DECREF(nd_sa);
+	return (PyObject *)nd_new_darray;
 }
+
+static PyObject *meth_get_aft(PyObject *self, PyObject *args, PyObject *kwargs) {
+	PyObject *obj_d, *obj_da, *obj_sa;
+	npy_float64 area_frac=0.5;
+	static char *keywords[] = {"","","","area_frac", NULL};
+	if (!PyArg_ParseTupleAndKeywords(args, kwargs, "OOO|d", keywords,
+		&obj_d, &obj_da, &obj_sa, &area_frac)) {
+		return NULL;
+	}
+	PyArrayObject *nd_d  = (PyArrayObject *)PyArray_FROM_OTF(obj_d, NPY_FLOAT64, 0);
+	PyArrayObject *nd_da = (PyArrayObject *)PyArray_FROM_OTF(obj_da, NPY_UINT32, 0);
+	PyArrayObject *nd_sa = (PyArrayObject *)PyArray_FROM_OTF(obj_sa, NPY_UINT16, 0);
+	
+	int ndim_d = PyArray_NDIM(nd_d);
+	if (ndim_d != 2) {
+		PyErr_SetString(PyExc_ValueError, "pulse data must be 2d");
+	}
+	npy_intp *dims_d = PyArray_DIMS(nd_d);
+	npy_intp n_evt = dims_d[0];
+	int ndim_da = PyArray_NDIM(nd_da);
+	npy_intp *dims_da = PyArray_DIMS(nd_da);
+	npy_intp num_pulse_tot = dims_da[1];
+	npy_intp dims_new_darray[1];
+	dims_new_darray[0] = num_pulse_tot;
+	PyArrayObject *nd_new_darray = (PyArrayObject *)PyArray_EMPTY(1, dims_new_darray, NPY_FLOAT64, NPY_CORDER);
+	npy_uint16 *el_sa;
+	npy_uint32 *el_da1, *el_da2;
+	npy_float64 *el_d, *el_newda;
+	
+	npy_uint32 p_count = 0;
+	
+	npy_float64 f_sum = 0.;
+	npy_float64 af_last, af_current;
+	npy_intp ii_samp;
+	// loop over events
+	for (npy_intp ie=0; ie<n_evt; ie++) {
+		el_sa = (npy_uint16 *)PyArray_GETPTR1(nd_sa, ie);
+		
+		//loop over pulses
+		for (npy_uint16 ip=0; ip<*el_sa; ip++) {
+			el_da1 = (npy_uint32 *)PyArray_GETPTR2(nd_da, 0, p_count);
+			el_da2 = (npy_uint32 *)PyArray_GETPTR2(nd_da, 1, p_count);
+			f_sum = 0.;
+			//loop over samples in a pulse
+			for (npy_uint32 i_samp=*el_da1; i_samp<=*el_da2; i_samp++) {
+				el_d = (npy_float64 *)PyArray_GETPTR2(nd_d, ie, i_samp);
+				f_sum += *el_d;
+			}
+			//go back and start over, quitting when aft is met
+			af_last = 0.;
+			af_current=0.;
+			ii_samp = *el_da1;
+			while (af_current < (area_frac*f_sum)) {
+				el_d = (npy_float64 *)PyArray_GETPTR2(nd_d, ie, ii_samp);
+				af_last = af_current;
+				af_current += *el_d;
+				ii_samp++;
+			}
+			el_newda = (npy_float64 *)PyArray_GETPTR1(nd_new_darray, p_count);
+			// interpolate the position
+			if ((af_current-af_last)!=0) {
+				*el_newda = (npy_float64)ii_samp - 1. + (area_frac*f_sum-af_last)/(af_current-af_last);
+			} else {
+				*el_newda = (npy_float64)ii_samp;
+			}
+			p_count++;
+		}
+	}
+	Py_DECREF(nd_d);
+	Py_DECREF(nd_da);
+	Py_DECREF(nd_sa);
+	return (PyObject *)nd_new_darray;
+}
+/*
 static PyObject *meth_get_pH_ch(PyObject *self, PyObject *args, PyObject *kwargs) {
 	// calc pulse area on ch_sum
 }
@@ -1910,6 +2037,8 @@ static PyMethodDef ldax_methods[] = {
 	{"get_pA",meth_get_pA,METH_VARARGS, PyDoc_STR("--")},
 	{"get_pA_ch",meth_get_pA_ch,METH_VARARGS, PyDoc_STR("--")},
 	{"get_pH_ch",meth_get_pH_ch,METH_VARARGS, PyDoc_STR("--")},
+	{"get_pH",meth_get_pH,METH_VARARGS, PyDoc_STR("--")},
+	{"get_aft",(PyCFunction)meth_get_aft, METH_VARARGS|METH_KEYWORDS, PyDoc_STR("--")},
 	{NULL, NULL, 0, NULL}
 };
 
