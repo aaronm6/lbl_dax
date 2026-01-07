@@ -220,6 +220,9 @@ def process_portion(filename_and_path, start_event, num_events):
     d['ch_pos'] = ch_pos
     d['s2_x_raw'] = s2_x_raw
     d['s2_y_raw'] = s2_y_raw
+    # for convenience, calculate lateral coordinates in r, theta
+    d['s2_r_raw'] = np.sqrt((s2_x_raw**2) + (s2_y_raw**2))
+    d['s2_theta_raw'] = np.arctan2(s2_y_raw, s2_x_raw)
     
     return d
 
