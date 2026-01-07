@@ -261,8 +261,8 @@ if __name__ == "__main__":
     tracemalloc.start()
     try:
         main(sys.argv)
-        current, peak = tracemalloc.get_traced_memory()
     finally:
+        current, peak = tracemalloc.get_traced_memory()
         print(f"\nPeak memory usage: {peak / 1024 / 1024 / 1024:.2f} GB")
         tracemalloc.stop()
 
