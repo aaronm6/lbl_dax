@@ -187,7 +187,7 @@ def process_portion(filename_and_path, start_event, num_events, c):
     # load SiPM gains and apply
     gains_dir, gains_file = os.path.split(c.sipm_spe_areas)
     if not gains_dir:
-        gains_dir = os.path.dirname(__file__)
+        gains_dir = os.path.normpath(os.path.join(__file__,'..','..','ldax_settings'))
     sphe_ch = np.loadtxt(os.path.join(gains_dir, gains_file))
     sphe_ch = sphe_ch[:,1] # the second column (column 1) is the spe areas in adcc*samples
     p_phe_ch_darray  = p_area_ch.flatten() / sphe_ch[:, np.newaxis]
@@ -243,7 +243,7 @@ def process_portion(filename_and_path, start_event, num_events, c):
         sarray=s2_phe.sarray)
     va_ch_pos_y = va.varray(
         darray=np.tile(ch_pos[:,1][:,np.newaxis],(1,int(s2_phe.sarray.sum()))), 
-        sarray=s2_aphe.sarray)
+        sarray=s2_phe.sarray)
     s2_x_raw = (s2_phe_ch[:,:16,...]*va_ch_pos_x).sum(axis=1) / s2_top
     s2_y_raw = (s2_phe_ch[:,:16,...]*va_ch_pos_y).sum(axis=1) / s2_top
     
@@ -333,7 +333,7 @@ def main():
     while (i_end < num_events):
         num_events_load = min(i_end+num_events_per_iteration, num_events) - i_end
         print(f"...load events {i_end} through {i_end+num_events_load}")
-        d_new = process_portion(f'{raw_data_path}/{fName}', i_end, num_events_load, c)
+        d_new = process_portion(f'{c.raw_data_path}/{fName}', i_end, num_events_load, c)
         for key in d:
             if isinstance(d[key], va.varray):
                 d[key] = va.row_concat([d[key], d_new[key]])
