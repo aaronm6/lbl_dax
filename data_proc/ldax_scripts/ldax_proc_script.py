@@ -313,7 +313,7 @@ def main():
     else:
         rqName = args.out_file
     
-    conf_dir, conf_file = os.path.split(arg.conf_file)
+    conf_dir, conf_file = os.path.split(args.conf_file)
     # check if a directory was provided.  If not, grab the default conf directory
     if not conf_dir:
         conf_dir = os.path.normpath(os.path.join(__file__, '..', '..', 'ldax_settings'))
