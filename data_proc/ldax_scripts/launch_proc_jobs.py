@@ -1,3 +1,10 @@
+"""
+The file 'ldax_proc_script.py' processes a single raw file, producing a single RQ file.
+
+This script finds which raw files don't have a corresponding RQ file; it will start up to
+4 raw-file-processings at a time.
+"""
+
 import os, subprocess
 from time import sleep
 
