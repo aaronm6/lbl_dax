@@ -44,7 +44,7 @@ def process_portion(filename_and_path, start_event, num_events, c):
     ldax.merge_islands(d_find_mask, width=c.chfind_merge_islands_width)
     
     # calculate per-channel-per-event baseline curves from a running average, masked of pulses
-    d_bs_est = ldax.baseline_update(d, d_find_mask, alpha=bs_est_alpha)
+    d_bs_est = ldax.baseline_update(d, d_find_mask, alpha=c.bs_est_alpha)
     
     # subtract baselines
     d = d - d_bs_est
