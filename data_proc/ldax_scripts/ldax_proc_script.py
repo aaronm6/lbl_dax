@@ -145,7 +145,7 @@ def process_portion(filename_and_path, start_event, num_events, c):
     p_class[cut_S1 & (p_nfold<c.s1_nfold)] = 3
     cut_S2 = (p_width_9010>c.s2_9010_max) & (p_width_9010<c.s2_9010_max) & \
         (p_width_7525 < (p_width_9010*c.s2_7525_max_m-c.s2_7525_max_b)) & \
-        (p_width_7525 > ((p_width_9010**c.s2_7525_min_p)*c.s2_7525_min_a-cl.s2_7525_min_b))
+        (p_width_7525 > ((p_width_9010**c.s2_7525_min_p)*c.s2_7525_min_a-c.s2_7525_min_b))
     p_class[cut_S2] = 2
     
     # Move now from pulse-level quantities to identifying prominent S1s and S2s
@@ -156,7 +156,7 @@ def process_portion(filename_and_path, start_event, num_events, c):
     S1A_max_mask = S1A_max_ma.mask
     S1A_max[S1A_max_mask] = 0.
     pA_S1max = va.expand_to_columns(S1A_max, sarray=p_area.sarray)
-    cut_S1_prominent = (p_class==1) & (p_area > cl.s1_prom_max_frac*pA_S1max)
+    cut_S1_prominent = (p_class==1) & (p_area > c.s1_prom_max_frac*pA_S1max)
     
     # construct cut for prominent S2 pulses
     S2A_max_ma = p_area[cut_S2].max(axis=-1)
