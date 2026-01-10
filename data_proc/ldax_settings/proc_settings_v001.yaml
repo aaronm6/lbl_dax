@@ -50,10 +50,10 @@ s1_nfold: 2
 s2_9010_min: 60.
 s2_9010_max: 225.
 s2_7525_max_m: 0.75
-s2_7525_max_b: 7.
+s2_7525_max_b: -7.
 s2_7525_min_p: 0.55
 s2_7525_min_a: 5.
-s2_7525_min_b: 25.
+s2_7525_min_b: -25.
 
 s1_prom_max_frac: 0.1
 s2_prom_max_frac: 0.05

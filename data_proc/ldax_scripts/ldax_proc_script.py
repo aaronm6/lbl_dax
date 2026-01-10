@@ -143,9 +143,9 @@ def process_portion(filename_and_path, start_event, num_events, c):
         (p_width_7525 > (p_width_9010*c.s1_7525_min_m+c.s1_7525_min_b))
     p_class[cut_S1 & (p_nfold>=c.s1_nfold)] = 1
     p_class[cut_S1 & (p_nfold<c.s1_nfold)] = 3
-    cut_S2 = (p_width_9010>c.s2_9010_max) & (p_width_9010<c.s2_9010_max) & \
-        (p_width_7525 < (p_width_9010*c.s2_7525_max_m-c.s2_7525_max_b)) & \
-        (p_width_7525 > ((p_width_9010**c.s2_7525_min_p)*c.s2_7525_min_a-c.s2_7525_min_b))
+    cut_S2 = (p_width_9010>c.s2_9010_min) & (p_width_9010<c.s2_9010_max) & \
+        (p_width_7525 < (p_width_9010*c.s2_7525_max_m+c.s2_7525_max_b)) & \
+        (p_width_7525 > ((p_width_9010**c.s2_7525_min_p)*c.s2_7525_min_a+c.s2_7525_min_b))
     p_class[cut_S2] = 2
     
     # Move now from pulse-level quantities to identifying prominent S1s and S2s
