@@ -5,7 +5,7 @@ rq_path: '/mnt/drive2/TPC_RQs'
 
 sipm_spe_areas: 'SiPMgains_2025-12-18-1141.txt'
 
-find_mask_thresh: 0.5833333
+find_mask_thresh: 5.83333333
 find_mask_pre_samples_add: 10
 find_mask_post_samples_add: 25
 chfind_merge_islands_width: 50
