@@ -328,7 +328,7 @@ def main():
     
     num_events_per_iteration = min(1000, num_events)
     
-    d = process_portion(f'{raw_data_path}/{fName}', 0, num_events_per_iteration)
+    d = process_portion(f'{c.raw_data_path}/{fName}', 0, num_events_per_iteration)
     i_end = num_events_per_iteration
     while (i_end < num_events):
         num_events_load = min(i_end+num_events_per_iteration, num_events) - i_end
