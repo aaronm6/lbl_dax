@@ -9,7 +9,7 @@ import yaml
 def parse_some_args():
     parser = argparse.ArgumentParser(description="Process LDAX DDC40 data")
     parser.add_argument('-f', action='store', dest='raw_file', type=str, help="Name of raw file to process")
-    parser.add_argument('-c','--conf', action='store', dest='conf_file', type-str,
+    parser.add_argument('-c','--conf', action='store', dest='conf_file', type=str,
         help="Name of YAML configuration file to use")
     parser.add_argument('-o','--output', action='store', dest='out_file', default='default',
         type=str, help="(optional) select the name of the RQ file")
