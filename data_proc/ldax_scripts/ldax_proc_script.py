@@ -3,11 +3,31 @@ import numpy as np
 import ldax_processing as ldax
 import varray as va
 import tracemalloc
+import argparse
+import yaml
 
-raw_data_path = '/mnt/drive1/TPC_data'
-rq_path = '/mnt/drive2/TPC_RQs'
+def parse_some_args():
+    parser = argparse.ArgumentParser(description="Process LDAX DDC40 data")
+    parser.add_argument('-f', action='store', dest='raw_file', type=str, help="Name of raw file to process")
+    parser.add_argument('-c','--conf', action='store', dest='conf_file', type=str,
+        help="Name of YAML configuration file to use")
+    parser.add_argument('-o','--output', action='store', dest='out_file', default='default',
+        type=str, help="(optional) select the name of the RQ file")
+    args = parser.parse_args()
+    return args
 
-def process_portion(filename_and_path, start_event, num_events):
+class dict_attr(dict):
+    """
+    I'd like a dict whose items can be accessed like attributes
+    e.g.:  d['a'] can be done as d.a
+    """
+    def __getattr__(self, item):
+        return self.__getitem__(item)
+
+def process_portion(filename_and_path, start_event, num_events, c):
+    """
+    c is a dict_attr object with loaded settings from the conf file
+    """
     # load data
     d, _, _ = ldax.Read_DDC40_fName(filename_and_path, start_event=start_event, num_events=num_events)
     
@@ -18,13 +38,13 @@ def process_portion(filename_and_path, start_event, num_events):
     d_find = ldax.lowpass_ngdd(d, 0.15)
     d_find_mask = ldax.ngdd_filt_mask(
         d_find,
-        thresh=3.5/.6, #3.2/.6,#3.8/.6,
-        pre_samples_add=10,
-        post_samples_add=25)
-    ldax.merge_islands(d_find_mask, width=50)
+        thresh=c.find_mask_thresh,
+        pre_samples_add=c.find_mask_pre_samples_add,
+        post_samples_add=c.find_mask_post_samples_add)
+    ldax.merge_islands(d_find_mask, width=c.chfind_merge_islands_width)
     
     # calculate per-channel-per-event baseline curves from a running average, masked of pulses
-    d_bs_est = ldax.baseline_update(d, d_find_mask, alpha=0.08)
+    d_bs_est = ldax.baseline_update(d, d_find_mask, alpha=c.bs_est_alpha)
     
     # subtract baselines
     d = d - d_bs_est
@@ -33,10 +53,13 @@ def process_portion(filename_and_path, start_event, num_events):
     e_area_raw = d.sum(axis=1).sum(axis=-1)
     
     # perform low-pass filter to suppress HF noise:
-    d_filt = ldax.lowpass_RC(d, 0.1, n=10)
+    d_filt = ldax.lowpass_RC(d, c.filter_RC_bw, n=c.filter_RC_poles)
     
     # find pods, creating a boolean per-channel array that identifies pods
-    pod_bool = ldax.pod_boolean(d_filt, thresh=2.5, prepod_samples=15, postpod_samples=20)
+    pod_bool = ldax.pod_boolean(d_filt, 
+        thresh=c.ch_podbool_thresh, 
+        prepod_samples=c.ch_podbool_prepodsamples, 
+        postpod_samples=c.ch_podbool_postpodsamples)
     
     # suppress the baseline of each waveform outside of a pod:
     d_filt[~pod_bool] = 0.
@@ -45,8 +68,11 @@ def process_portion(filename_and_path, start_event, num_events):
     d_chsum = d_filt[:,:32,:].sum(axis=1)
     
     # recompute another podding, based on sum waveform
-    d_chsum_pod = ldax.pod_boolean(d_chsum, thresh=3., prepod_samples=15, postpod_samples=20)
-    ldax.merge_islands(d_chsum_pod, width=10)
+    d_chsum_pod = ldax.pod_boolean(d_chsum, 
+    thresh=c.sm_podbool_thresh, 
+    prepod_samples=c.sm_podbool_prepodsamples, 
+    postpod_samples=c.sm_podbool_postpodsamples)
+    ldax.merge_islands(d_chsum_pod, width=c.sm_merge_islands_width)
     
     # Make sure the start and end of the waveform are not part of a pulse
     d_chsum_pod[:,0] = False
@@ -72,14 +98,15 @@ def process_portion(filename_and_path, start_event, num_events):
     
     # Split off low-amplitude tails from pulses; needs to be done several times
     split_dict = {
-        'amp_frac': 0.04,
-        'amp_max': 40.,
-        'quiet_samples': 60,
-        'buffer_samples': 10}
-    p_bnds = va.varray(ldax.split_pulses(p_bnds.flatten(), p_bnds.sarray,d_chsum, **split_dict))
-    p_bnds = va.varray(ldax.split_pulses(p_bnds.flatten(), p_bnds.sarray,d_chsum, **split_dict))
-    p_bnds = va.varray(ldax.split_pulses(p_bnds.flatten(), p_bnds.sarray,d_chsum, **split_dict))
-    p_bnds = va.varray(ldax.split_pulses(p_bnds.flatten(), p_bnds.sarray,d_chsum, **split_dict))
+        'amp_frac': c.split_amp_frac,
+        'amp_max': c.split_amp_max,
+        'quiet_samples': c.split_quiet_samples,
+        'buffer_samples': c.split_buffer_samples}
+    for k in range(c.split_iterations):
+        p_bnds = va.varray(ldax.split_pulses(p_bnds.flatten(), p_bnds.sarray,d_chsum, **split_dict))
+    #p_bnds = va.varray(ldax.split_pulses(p_bnds.flatten(), p_bnds.sarray,d_chsum, **split_dict))
+    #p_bnds = va.varray(ldax.split_pulses(p_bnds.flatten(), p_bnds.sarray,d_chsum, **split_dict))
+    #p_bnds = va.varray(ldax.split_pulses(p_bnds.flatten(), p_bnds.sarray,d_chsum, **split_dict))
     
     # calculate pulse areas (sum and individual)
     p_area = va.varray(darray=ldax.get_pA(d_chsum, p_bnds.flatten(), p_bnds.sarray), sarray=p_bnds.sarray)
@@ -94,7 +121,7 @@ def process_portion(filename_and_path, start_event, num_events):
         sarray=p_bnds.sarray)
     
     # calculate pulse-area-fraction times
-    area_fracs = np.r_[0.05, 0.1, 0.25, 0.5, 0.75, 0.9, 0.95]
+    area_fracs = np.array(c.p_area_fracs)#np.r_[0.05, 0.1, 0.25, 0.5, 0.75, 0.9, 0.95]
     pA_list = [
         va.varray(darray=ldax.get_aft(d_chsum, p_bnds.flatten(), p_bnds.sarray, area_frac=ff), sarray=p_bnds.sarray)
         for ff in area_fracs]
@@ -111,12 +138,14 @@ def process_portion(filename_and_path, start_event, num_events):
     # perform first-pass pulse classification
     # pulse identity: 0 (other); 1 (s1); 2 (s2); 3 (SPE)
     p_class = va.zeros(p_area.sarray, dtype=np.uint8)
-    cut_S1 = (p_width_9010>10.) & (p_width_9010<20.) & \
-        (p_width_7525 < (p_width_9010*.5+2.)) & (p_width_7525 > (p_width_9010*.37+.5))
-    p_class[cut_S1 & (p_nfold>=2)] = 1
-    p_class[cut_S1 & (p_nfold<2)] = 3
-    cut_S2 = (p_width_9010>60.) & (p_width_9010<225.) & \
-        (p_width_7525 < (p_width_9010*.75-7.)) & (p_width_7525 > ((p_width_9010**.55)*5.-25.))
+    cut_S1 = (p_width_9010>c.s1_9010_min) & (p_width_9010<c.s1_9010_max) & \
+        (p_width_7525 < (p_width_9010*c.s1_7525_max_m+c.s1_7525_max_b)) & \
+        (p_width_7525 > (p_width_9010*c.s1_7525_min_m+c.s1_7525_min_b))
+    p_class[cut_S1 & (p_nfold>=c.s1_nfold)] = 1
+    p_class[cut_S1 & (p_nfold<c.s1_nfold)] = 3
+    cut_S2 = (p_width_9010>c.s2_9010_min) & (p_width_9010<c.s2_9010_max) & \
+        (p_width_7525 < (p_width_9010*c.s2_7525_max_m+c.s2_7525_max_b)) & \
+        (p_width_7525 > ((p_width_9010**c.s2_7525_min_p)*c.s2_7525_min_a+c.s2_7525_min_b))
     p_class[cut_S2] = 2
     
     # Move now from pulse-level quantities to identifying prominent S1s and S2s
@@ -127,7 +156,7 @@ def process_portion(filename_and_path, start_event, num_events):
     S1A_max_mask = S1A_max_ma.mask
     S1A_max[S1A_max_mask] = 0.
     pA_S1max = va.expand_to_columns(S1A_max, sarray=p_area.sarray)
-    cut_S1_prominent = (p_class==1) & (p_area > 0.1*pA_S1max)
+    cut_S1_prominent = (p_class==1) & (p_area > c.s1_prom_max_frac*pA_S1max)
     
     # construct cut for prominent S2 pulses
     S2A_max_ma = p_area[cut_S2].max(axis=-1)
@@ -135,7 +164,7 @@ def process_portion(filename_and_path, start_event, num_events):
     S2A_max_mask = S2A_max_ma.mask
     S2A_max[S2A_max_mask] = 0.
     pA_S2max = va.expand_to_columns(S2A_max, sarray=p_area.sarray)
-    cut_S2_prominent = (p_class==2) & (p_area > 0.05*pA_S2max)
+    cut_S2_prominent = (p_class==2) & (p_area > c.s2_prom_max_frac*pA_S2max)
     
     # create S1 RQs
     s1_area              = p_area[cut_S1_prominent]
@@ -154,6 +183,23 @@ def process_portion(filename_and_path, start_event, num_events):
     s2_pulse_bounds      = p_bnds[cut_S1_prominent]
     s2_aft               = p_aft[cut_S2_prominent]
     s2_width1090         = p_width_9010[cut_S2_prominent]
+    
+    # load SiPM gains and apply
+    gains_dir, gains_file = os.path.split(c.sipm_spe_areas)
+    if not gains_dir:
+        gains_dir = os.path.normpath(os.path.join(__file__,'..','..','ldax_settings'))
+    sphe_ch = np.loadtxt(os.path.join(gains_dir, gains_file))
+    sphe_ch = sphe_ch[:,1] # the second column (column 1) is the spe areas in adcc*samples
+    p_phe_ch_darray  = p_area_ch.flatten() / sphe_ch[:, np.newaxis]
+    s1_phe_ch_darray = s1_area_ch.flatten() / sphe_ch[:, np.newaxis]
+    s2_phe_ch_darray = s2_area_ch.flatten() / sphe_ch[:, np.newaxis]
+    
+    p_phe_ch = va.varray(darray=p_phe_ch_darray, sarray=p_area_ch.sarray)
+    p_phe = p_phe_ch.sum(axis=1)
+    s1_phe_ch = va.varray(darray=s1_phe_ch_darray, sarray=s1_area_ch.sarray)
+    s1_phe = s1_phe_ch.sum(axis=1)
+    s2_phe_ch = va.varray(darray=s2_phe_ch_darray, sarray=s2_area_ch.sarray)
+    s2_phe = s2_phe_ch.sum(axis=1)
     
     # calculate drift time
     s2_drift_time = s2_aft[:,1,:] - va.expand_to_columns(np.array(s1_aft[:,1,0]), sarray=s2_area.sarray)
@@ -176,6 +222,8 @@ def process_portion(filename_and_path, start_event, num_events):
         [-0.5,0.5],
         [-1.5,0.5],
         [-1.5,1.5]])
+    """
+    # here with raw pulse areas in units of adcc * samples
     s2_top = s2_area_ch[:,:16,:].sum(axis=1)
     s2_top[s2_top<=0.] = 1.
     va_ch_pos_x = va.varray(
@@ -186,12 +234,26 @@ def process_portion(filename_and_path, start_event, num_events):
         sarray=s2_area.sarray)
     s2_x_raw = (s2_area_ch[:,:16,...]*va_ch_pos_x).sum(axis=1) / s2_top
     s2_y_raw = (s2_area_ch[:,:16,...]*va_ch_pos_y).sum(axis=1) / s2_top
+    """
+    # here with raw pulse areas in units of phe
+    s2_top = s2_phe_ch[:,:16,:].sum(axis=1)
+    s2_top[s2_top<=0.] = 1.
+    va_ch_pos_x = va.varray(
+        darray=np.tile(ch_pos[:,0][:,np.newaxis],(1,int(s2_phe.sarray.sum()))), 
+        sarray=s2_phe.sarray)
+    va_ch_pos_y = va.varray(
+        darray=np.tile(ch_pos[:,1][:,np.newaxis],(1,int(s2_phe.sarray.sum()))), 
+        sarray=s2_phe.sarray)
+    s2_x_raw = (s2_phe_ch[:,:16,...]*va_ch_pos_x).sum(axis=1) / s2_top
+    s2_y_raw = (s2_phe_ch[:,:16,...]*va_ch_pos_y).sum(axis=1) / s2_top
     
     # collect RQs into dictionary
     d = {}
     d['p_bnds'] = p_bnds
     d['p_area'] = p_area
     d['p_area_ch'] = p_area_ch
+    d['p_phe'] = p_phe
+    d['p_phe_ch'] = p_phe_ch
     d['p_height'] = p_height
     d['p_height_ch'] = p_height_ch
     d['area_fracs'] = area_fracs
@@ -204,6 +266,8 @@ def process_portion(filename_and_path, start_event, num_events):
     d['p_cut_s2_prominent'] = cut_S2_prominent
     d['s1_area'] = s1_area
     d['s1_area_ch'] = s1_area_ch
+    d['s1_phe'] = s1_phe
+    d['s1_phe_ch'] = s1_phe_ch
     d['s1_height'] = s1_height
     d['s1_height_ch'] = s1_height_ch
     d['s1_pulse_bounds'] = s1_pulse_bounds
@@ -211,6 +275,8 @@ def process_portion(filename_and_path, start_event, num_events):
     d['s1_width1090'] = s1_width1090
     d['s2_area'] = s2_area
     d['s2_area_ch'] = s2_area_ch
+    d['s2_phe'] = s2_phe
+    d['s2_phe_ch'] = s2_phe_ch
     d['s2_height'] = s2_height
     d['s2_height_ch'] = s2_height_ch
     d['s2_pulse_bounds'] = s2_pulse_bounds
@@ -226,24 +292,48 @@ def process_portion(filename_and_path, start_event, num_events):
     
     return d
 
-def main(argv):
-    fName = argv[1]
+"""
+def parse_some_args():
+    parser = argparse.ArgumentParser(description="Process LDAX DDC40 data")
+    parser.add_argument('-f', action='store', dest='raw_file', type=str, help="Name of raw file to process")
+    parser.add_argument('-c','--conf', action='store', dest='conf_file', type-str,
+        help="Name of YAML configuration file to use")
+    parser.add_argument('-o','--output', action='store', dest='out_file', default='default',
+        type=str, help="(optional) select the name of the RQ file")
+    args = parser.parse_args()
+    return args
+"""
+def main():
+    args = parse_some_args()
+    fName = args.raw_file
     fName_list = fName.split('.')
-    rqName_list = [item for item in fName_list if item not in ('bin','gz')]
-    rqName = '.'.join(rqName_list) + '_RQ.vrz'
+    if args.out_file == 'default':
+        rqName_list = [item for item in fName_list if item not in ('bin','gz')]
+        rqName = '.'.join(rqName_list) + '_RQ.vrz'
+    else:
+        rqName = args.out_file
+    
+    conf_dir, conf_file = os.path.split(args.conf_file)
+    # check if a directory was provided.  If not, grab the default conf directory
+    if not conf_dir:
+        conf_dir = os.path.normpath(os.path.join(__file__, '..', '..', 'ldax_settings'))
+    
+    # read conf file
+    with open(os.path.join(conf_dir, conf_file),'r') as ff:
+        c = dict_attr(yaml.safe_load(ff))
     
     # Read file header and get data-info
-    _, d_info, header = ldax.Read_DDC40_fName(f'{raw_data_path}/{fName}', num_events=2)
+    _, d_info, header = ldax.Read_DDC40_fName(f'{c.raw_data_path}/{fName}', num_events=2)
     num_events = header['num_events_in_file']
     
     num_events_per_iteration = min(1000, num_events)
     
-    d = process_portion(f'{raw_data_path}/{fName}', 0, num_events_per_iteration)
+    d = process_portion(f'{c.raw_data_path}/{fName}', 0, num_events_per_iteration, c)
     i_end = num_events_per_iteration
     while (i_end < num_events):
         num_events_load = min(i_end+num_events_per_iteration, num_events) - i_end
         print(f"...load events {i_end} through {i_end+num_events_load}")
-        d_new = process_portion(f'{raw_data_path}/{fName}', i_end, num_events_load)
+        d_new = process_portion(f'{c.raw_data_path}/{fName}', i_end, num_events_load, c)
         for key in d:
             if isinstance(d[key], va.varray):
                 d[key] = va.row_concat([d[key], d_new[key]])
@@ -257,13 +347,17 @@ def main(argv):
     for item in d_info:
         d['d_'+item] = d_info[item]
     
+    # add info regarding config file
+    d['config_version'] = c.config_version
+    d['sipm_spe_areas'] = c.sipm_spe_areas
+    
     # save RQs to file
-    va.save(f'{rq_path}/{rqName}', **d)
+    va.save(f'{c.rq_path}/{rqName}', **d)
 
 if __name__ == "__main__":
     tracemalloc.start()
     try:
-        main(sys.argv)
+        main()
     finally:
         current, peak = tracemalloc.get_traced_memory()
         print(f"\nPeak memory usage: {peak / 1024 / 1024 / 1024:.2f} GB")
