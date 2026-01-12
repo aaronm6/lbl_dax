@@ -39,7 +39,15 @@ def main():
         while (len(files_in_process)<4) and files_to_process:
             file_proc = files_to_process.pop()
             print(f"--Processing {file_proc}", flush=True)
-            p = subprocess.Popen(['python','ldax_proc_script.py',f'{file_proc}.bin.gz'])
+            popen_list = [
+                'python',
+                'ldax_proc_script.py',
+                '-f',
+                f'{file_proc}.bin.gz',
+                '-c',
+                '/home/aaronm/pylab/lbl_dax/data_proc/ldax_settings/proc_settings_v001.yaml']
+            p = subprocess.Popen(popen_list)
+            #p = subprocess.Popen(['python','ldax_proc_script.py',f'{file_proc}.bin.gz'])
             files_in_process.append(file_proc)
             files_in_process_dict[file_proc] = p
         # check for processes finished
