@@ -298,17 +298,6 @@ def process_portion(filename_and_path, start_event, num_events, c):
     
     return d
 
-"""
-def parse_some_args():
-    parser = argparse.ArgumentParser(description="Process LDAX DDC40 data")
-    parser.add_argument('-f', action='store', dest='raw_file', type=str, help="Name of raw file to process")
-    parser.add_argument('-c','--conf', action='store', dest='conf_file', type-str,
-        help="Name of YAML configuration file to use")
-    parser.add_argument('-o','--output', action='store', dest='out_file', default='default',
-        type=str, help="(optional) select the name of the RQ file")
-    args = parser.parse_args()
-    return args
-"""
 def main():
     args = parse_some_args()
     fName = args.raw_file
