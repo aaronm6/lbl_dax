@@ -21,6 +21,9 @@ Processing function:
                properties like pulse area, pulse height, timing information, etc.
                Returns a dict with per-event information.
 
+Analysis functions:
+ - plot_top_pattern: takes an array of SiPM hits in a single 16-ch array and plots the hit pattern
+
 """
 from ldax_processing.c_ldax_proc import *
 from ldax_processing.fft_filters import *
