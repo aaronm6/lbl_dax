@@ -27,7 +27,6 @@ for k4 in range(4):
 a_ch = 6.15 # mm
 
 ch_patches = [Rectangle(tuple(ch_corner_pos_mm[k,:]), a_ch, a_ch) for k in range(16)]
-tpc_circle = Circle((0., 0.), radius=15., facecolor='none', edgecolor='r',lw=.5)
 
 def plot_top_pattern(hit_i, ax=None, cmap=None, add_circ=True):
     """
@@ -46,6 +45,7 @@ def plot_top_pattern(hit_i, ax=None, cmap=None, add_circ=True):
     plt.sci(hit_collection)
     ax.autoscale_view()
     if add_circ:
+        tpc_circle = Circle((0., 0.), radius=15., facecolor='none', edgecolor='r',lw=.5)
         ax.add_patch(tpc_circle)
     return hit_collection
 
