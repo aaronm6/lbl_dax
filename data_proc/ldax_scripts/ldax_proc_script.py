@@ -69,9 +69,9 @@ def process_portion(filename_and_path, start_event, num_events, c):
     
     # recompute another podding, based on sum waveform
     d_chsum_pod = ldax.pod_boolean(d_chsum, 
-    thresh=c.sm_podbool_thresh, 
-    prepod_samples=c.sm_podbool_prepodsamples, 
-    postpod_samples=c.sm_podbool_postpodsamples)
+        thresh=c.sm_podbool_thresh, 
+        prepod_samples=c.sm_podbool_prepodsamples, 
+        postpod_samples=c.sm_podbool_postpodsamples)
     ldax.merge_islands(d_chsum_pod, width=c.sm_merge_islands_width)
     
     # Make sure the start and end of the waveform are not part of a pulse
