@@ -10,13 +10,13 @@ module = Extension(
 #print(find_packages(include=["ldax_processing"]))
 setup(
     name="ldax_processing",
-    version="0.5.0",
+    version="1.0.0",
     description="Data-processing library for ldax",
     author="Aaron Manalaysay",
     license="GPL-2.1",
     ext_modules=[module],
     packages=find_packages(where='.',include=["ldax_processing"]),
-    install_requires=['numpy<2','varray>=1.1.1'],
+    install_requires=['numpy<2','varray>=1.1.5'],
 )
 #    build_requires=['numpy>=2']
 #    packages=["ldax_processing"]
