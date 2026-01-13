@@ -205,6 +205,27 @@ def process_portion(filename_and_path, start_event, num_events, c):
     s2_drift_time = s2_aft[:,1,:] - va.expand_to_columns(np.array(s1_aft[:,1,0]), sarray=s2_area.sarray)
     
     # compute xy reconstruction
+    sipm2x2_center_positions_mm = 7.85
+    #   the position of each of the four 2x2 sipm packages on a board
+    sipm2x2_centers_mm = np.array([
+        [1, 1],
+        [1, -1],
+        [-1, -1],
+        [-1, 1]]).astype(float) * sipm2x2_center_positions_mm
+    #   within a 2x2 sipm package, the position of the lower-left corner of each sipm channel
+    sipm_i_rel_corner_positions_mm = np.array([
+        [.25,.25],
+        [.25,-6.15-.25],
+        [-6.15-.25, -6.15-.25],
+        [-6.15-.25,.25]])
+    #   within a 2x2 sipm package, the position of the center of each sipm channel
+    sipm_i_rel_center_positions_mm = sipm_i_rel_corner_positions_mm + (np.r_[1,1]*6.15/2)[np.newaxis,:]
+    ch_pos = np.empty((sipm2x2_centers_mm.shape[0]*sipm_i_rel_center_positions_mm.shape[0], 2), dtype=float)
+    for k4 in range(sipm2x2_centers_mm.shape[0]):
+        for k1 in range(sipm_i_rel_center_positions_mm.shape[0]):
+            ch_pos[k4*sipm2x2_centers_mm.shape[0] + k1,:] = \
+                sipm2x2_centers_mm[k4,:] + sipm_i_rel_center_positions_mm[k1,:]
+    """
     ch_pos = np.array([
         [1.5,1.5],
         [1.5,0.5],
@@ -222,18 +243,6 @@ def process_portion(filename_and_path, start_event, num_events, c):
         [-0.5,0.5],
         [-1.5,0.5],
         [-1.5,1.5]])
-    """
-    # here with raw pulse areas in units of adcc * samples
-    s2_top = s2_area_ch[:,:16,:].sum(axis=1)
-    s2_top[s2_top<=0.] = 1.
-    va_ch_pos_x = va.varray(
-        darray=np.tile(ch_pos[:,0][:,np.newaxis],(1,int(s2_area.sarray.sum()))), 
-        sarray=s2_area.sarray)
-    va_ch_pos_y = va.varray(
-        darray=np.tile(ch_pos[:,1][:,np.newaxis],(1,int(s2_area.sarray.sum()))), 
-        sarray=s2_area.sarray)
-    s2_x_raw = (s2_area_ch[:,:16,...]*va_ch_pos_x).sum(axis=1) / s2_top
-    s2_y_raw = (s2_area_ch[:,:16,...]*va_ch_pos_y).sum(axis=1) / s2_top
     """
     # here with raw pulse areas in units of phe
     s2_top = s2_phe_ch[:,:16,:].sum(axis=1)
