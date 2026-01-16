@@ -4,30 +4,44 @@ The file 'ldax_proc_script.py' processes a single raw file, producing a single R
 This script finds which raw files don't have a corresponding RQ file; it will start up to
 4 raw-file-processings at a time.
 """
-
+import argparse
 import os, subprocess
 from time import sleep
 
-raw_data_path = '/mnt/drive1/TPC_data'
-rq_path = '/mnt/drive2/TPC_RQs'
-#log_path = 
+default_raw_data_path = '/mnt/drive1/TPC_data'
+default_rq_path = '/mnt/drive2/TPC_RQs'
 
-def file_tags(filename_list, extensions):
+def parse_some_args():
+    parser = argparse.ArgumentParser(description="Launch processing jobs of LDAX DDC40 data")
+    parser.add_argument('-n', action='store', dest='num_procs', type=int, default=4,
+        help="Number of concurrent processes to run")
+    parser.add_argument('-r','--raw', action='store', dest='raw_data_path', 
+        default=default_raw_data_path, help="The path in which to search for raw data")
+    parser.add_argument('-p','--proc', action='store', dest='rq_path',
+        default=default_rq_path, help="The path in which to search for and save RQ data")
+    args = parser.parse_args()
+    return args
+
+def get_file_tags(filename_list, extensions=()):
     if isinstance(extensions, str):
         extensions = (extensions,)
     file_tags = []
     for fname in filename_list:
         fname_list = fname.split('.')
         file_tag_list = [item for item in fname_list if item not in extensions]
-        file_tags.append('.'.join(file_tag_list))
+        file_tag_1 = '.'.join(file_tag_list)
+        file_tag = file_tag_1.split('_RQ')[0]
+        #file_tags.append('.'.join(file_tag_list))
+        file_tags.append(file_tag)
     return file_tags
 
 def main():
-    raw_files = os.listdir(raw_data_path)
-    rq_files = os.listdir(rq_path)
+    args = parse_some_args()
+    raw_files = os.listdir(args.raw_data_path)
+    rq_files = os.listdir(args.rq_path)
     
-    file_raw_tag = file_tags(raw_files, ('bin','gz'))
-    file_rq_tags = file_tags(rq_files, ('vrz',))
+    file_raw_tag = get_file_tags(raw_files, extensions=('bin','gz'))
+    file_rq_tags = get_file_tags(rq_files, extensions=('vrz',))
     
     files_to_process = [item for item in file_raw_tag if item not in file_rq_tags]
     files_in_process = []
@@ -36,7 +50,7 @@ def main():
     files_in_process_dict = {}
     
     while files_to_process or files_in_process:
-        while (len(files_in_process)<4) and files_to_process:
+        while (len(files_in_process)<args.num_procs) and files_to_process:
             file_proc = files_to_process.pop()
             print(f"--Processing {file_proc}", flush=True)
             popen_list = [
