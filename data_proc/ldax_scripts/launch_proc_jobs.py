@@ -71,7 +71,7 @@ def main():
                 files_processed.append(file)
                 files_in_process.remove(file)
                 del files_in_process_dict[file]
-        sleep(10)
+        sleep(5)
     print('********* finished ******')
 
 if __name__ == "__main__":
