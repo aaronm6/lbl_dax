@@ -1,0 +1,29 @@
+[build-system]
+requires = [
+  "setuptools >= 61.0.0",
+  "wheel",
+]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ldax_analysis"
+authors = [{name = "Aaron M.", email = "aaronm6@gmail.com"}]
+license = "GPD-2.1"
+license-files = ["LICENSE"]
+readme = "README.md"
+description = "Routines for ldax processing and analysis"
+requires-python = ">=3.9.0"
+classifiers = ["Programming Language :: Python :: 3",]
+dependencies = ["numpy>=1.26.0", "varray>=1.1.5"]
+dynamic = ["version"]
+
+[project.urls]
+Homepage = "https://github.com/aaronm6/lbl_dax"
+Repository = "https://github.com/aaronm6/lbl_dax"
+
+[tool.setuptools]
+platforms=["unix-like"]
+zip-safe = false
+
+[tool.setuptools.dynamic]
+version = {attr = "ldax_analysis._version.__version__"}

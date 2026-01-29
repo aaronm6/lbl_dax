@@ -1,6 +1,7 @@
 import os, sys
 import numpy as np
 import ldax_processing as ldax
+import ldax_analysis as lan
 import varray as va
 import tracemalloc
 import argparse
@@ -34,18 +35,10 @@ def process_portion(filename_and_path, start_event, num_events, c):
     # convert waveform from dtype=int16 to dtype=float64
     d = d.astype(float)
     
-    # compute pulse-finding filtered waveform, "d_find" and create boolean mask based on it
-    d_find = ldax.lowpass_ngdd(d, 0.15)
-    d_find_mask = ldax.ngdd_filt_mask(
-        d_find,
-        thresh=c.find_mask_thresh,
-        pre_samples_add=c.find_mask_pre_samples_add,
-        post_samples_add=c.find_mask_post_samples_add)
-    ldax.merge_islands(d_find_mask, width=c.chfind_merge_islands_width)
-    
-    # calculate per-channel-per-event baseline curves from a running average, masked of pulses
-    d_bs_est = ldax.baseline_update(d, d_find_mask, alpha=c.bs_est_alpha)
-    
+    # determine baseline
+    baseline_estimator = getattr(lan, c.baseline_estimator)
+    d_bs_est = basline_estimator(d, c)
+
     # subtract baselines
     d = d - d_bs_est
     
@@ -53,13 +46,11 @@ def process_portion(filename_and_path, start_event, num_events, c):
     e_area_raw = d.sum(axis=1).sum(axis=-1)
     
     # perform low-pass filter to suppress HF noise:
-    d_filt = ldax.lowpass_RC(d, c.filter_RC_bw, n=c.filter_RC_poles)
+    filter_function = getattr(lan, c.filter_function)
+    d_filt = filter_function(d, c)
     
-    # find pods, creating a boolean per-channel array that identifies pods
-    pod_bool = ldax.pod_boolean(d_filt, 
-        thresh=c.ch_podbool_thresh, 
-        prepod_samples=c.ch_podbool_prepodsamples, 
-        postpod_samples=c.ch_podbool_postpodsamples)
+    # create a per-channel boolean that is true where there are pods
+    pod_bool_func = getattr(lan, c.pod_bool_func)
     
     # suppress the baseline of each waveform outside of a pod:
     d_filt[~pod_bool] = 0.
