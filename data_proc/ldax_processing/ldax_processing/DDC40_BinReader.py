@@ -1,7 +1,6 @@
 import os
 import numpy as np
 import gzip
-from tqdm import trange
 
 def gz_fromfile(fHandle, dtype=float, count=-1, offset=-1):
     """
@@ -111,7 +110,7 @@ def Read_DDC40_fHandle(fp, start_event=0, num_events=-1, evt_list=None):
     if evt_list is None:
         # Move to the position of the first event that you want to read
         fp.seek(start_event*event_size_bytes,1)
-        for k in trange(num_evts_read, desc="Reading file", leave=False):
+        for k in range(num_evts_read):
             trig_timestamp[k], = freader(fp, dtype=np.uint64, count=1)
             trig_seq_num[k], = freader(fp, dtype=np.uint32, count=1)
             ch_hit_vector[k], = freader(fp, dtype=np.uint64, count=1)
