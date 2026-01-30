@@ -32,6 +32,12 @@ def process_portion(filename_and_path, start_event, num_events, c):
     # load data
     d, _, _ = ldax.Read_DDC40_fName(filename_and_path, start_event=start_event, num_events=num_events)
     
+    # determine number of events; should be the same as num_events, but this will see what it really is
+    num_events_loaded = d.shape[0]
+    event_id = np.r_[:num_events_loaded] + start_event
+    
+    # get the
+    
     # convert waveform from dtype=int16 to dtype=float64
     d = d.astype(float)
     
@@ -43,14 +49,15 @@ def process_portion(filename_and_path, start_event, num_events, c):
     d = d - d_bs_est
     
     # compute the full event areas (summed over channels)
-    e_area_raw = d.sum(axis=1).sum(axis=-1)
+    #e_area_raw = d.sum(axis=1).sum(axis=-1)
     
     # perform low-pass filter to suppress HF noise:
     filter_function = getattr(lan, c.filter_function)
     d_filt = filter_function(d, c)
     
     # create a per-channel boolean that is true where there are pods
-    pod_bool_func = getattr(lan, c.pod_bool_func)
+    pod_bool_ch_func = getattr(lan, c.pod_bool_ch_func)
+    pod_bool = pod_bool_ch_func(d_filt, c)
     
     # suppress the baseline of each waveform outside of a pod:
     d_filt[~pod_bool] = 0.
@@ -59,42 +66,11 @@ def process_portion(filename_and_path, start_event, num_events, c):
     d_chsum = d_filt[:,:32,:].sum(axis=1)
     
     # recompute another podding, based on sum waveform
-    d_chsum_pod = ldax.pod_boolean(d_chsum, 
-        thresh=c.sm_podbool_thresh, 
-        prepod_samples=c.sm_podbool_prepodsamples, 
-        postpod_samples=c.sm_podbool_postpodsamples)
-    ldax.merge_islands(d_chsum_pod, width=c.sm_merge_islands_width)
+    pod_bool_sum_func = getattr(lan, c.pod_bool_sum_func)
+    d_chsum_pod = pod_bool_sum_func(d_chsum, c)
     
-    # Make sure the start and end of the waveform are not part of a pulse
-    d_chsum_pod[:,0] = False
-    d_chsum_pod[:,-1] = False
-    
-    # Get the pod starts and stops -- this will form the first guess at the pulse boundaries.
-    p_starts_evt, p_starts_samp = np.nonzero(np.diff(d_chsum_pod.astype(np.int8),axis=-1)==1)
-    p_stops_evt, p_stops_samp = np.nonzero(np.diff(d_chsum_pod.astype(np.int8),axis=-1)==-1)
-    
-    # check that there are the same number of starts and stops in each event
-    if len(p_starts_evt) != len(p_stops_evt):
-        raise ValueError("The number of pulse starts and stops must be the same in each event")
-    if not (p_starts_evt == p_stops_evt).all():
-        raise ValueError("The number of pod starts and stops is not the same")
-    
-    # calculate the boundaries of each pulse
-    pulse_sarray = np.empty(d_chsum.shape[0], dtype=np.uint16)
-    for k in range(d_chsum.shape[0]):
-        n_pulses = (p_starts_evt==k).sum()
-        pulse_sarray[k] = n_pulses
-    p_bnds = va.varray(
-        darray=np.vstack([p_starts_samp+1, p_stops_samp]), sarray=pulse_sarray, dtype=np.uint32)
-    
-    # Split off low-amplitude tails from pulses; needs to be done several times
-    split_dict = {
-        'amp_frac': c.split_amp_frac,
-        'amp_max': c.split_amp_max,
-        'quiet_samples': c.split_quiet_samples,
-        'buffer_samples': c.split_buffer_samples}
-    for k in range(c.split_iterations):
-        p_bnds = va.varray(ldax.split_pulses(p_bnds.flatten(), p_bnds.sarray,d_chsum, **split_dict))
+    get_p_bnds = getattr(lan, c.p_bnds_func)
+    p_bnds = get_p_bnds(d_chsum, c)
     
     # calculate pulse areas (sum and individual)
     p_area = va.varray(darray=ldax.get_pA(d_chsum, p_bnds.flatten(), p_bnds.sarray), sarray=p_bnds.sarray)
@@ -245,53 +221,66 @@ def process_portion(filename_and_path, start_event, num_events, c):
     s2_y_raw = (s2_phe_ch[:,:16,...]*va_ch_pos_y).sum(axis=1) / s2_top
     
     # collect RQs into dictionary
-    d = {}
-    d['p_bnds'] = p_bnds
-    d['p_area'] = p_area
-    d['p_area_ch'] = p_area_ch
-    d['p_phe'] = p_phe
-    d['p_phe_ch'] = p_phe_ch
-    d['p_height'] = p_height
-    d['p_height_ch'] = p_height_ch
-    d['area_fracs'] = area_fracs
-    d['p_aft'] = p_aft
-    d['p_width_1090'] = p_width_9010
-    d['p_width_2575'] = p_width_7525
-    d['p_nfold'] = p_nfold
-    d['p_class'] = p_class
-    d['p_cut_s1_prominent'] = cut_S1_prominent
-    d['p_cut_s2_prominent'] = cut_S2_prominent
-    d['s1_area'] = s1_area
-    d['s1_area_ch'] = s1_area_ch
-    d['s1_phe'] = s1_phe
-    d['s1_phe_ch'] = s1_phe_ch
-    d['s1_height'] = s1_height
-    d['s1_height_ch'] = s1_height_ch
-    d['s1_pulse_bounds'] = s1_pulse_bounds
-    d['s1_aft'] = s1_aft
-    d['s1_width1090'] = s1_width1090
-    d['s2_area'] = s2_area
-    d['s2_area_ch'] = s2_area_ch
-    d['s2_phe'] = s2_phe
-    d['s2_phe_ch'] = s2_phe_ch
-    d['s2_height'] = s2_height
-    d['s2_height_ch'] = s2_height_ch
-    d['s2_pulse_bounds'] = s2_pulse_bounds
-    d['s2_aft'] = s2_aft
-    d['s2_width1090'] = s2_width1090
-    d['s2_drift_time'] = s2_drift_time
-    d['ch_pos'] = ch_pos
-    d['s2_x_raw'] = s2_x_raw
-    d['s2_y_raw'] = s2_y_raw
+    d_out = {}
+    d_out['p_bnds'] = p_bnds
+    d_out['p_area'] = p_area
+    d_out['p_area_ch'] = p_area_ch
+    d_out['p_phe'] = p_phe
+    d_out['p_phe_ch'] = p_phe_ch
+    d_out['p_height'] = p_height
+    d_out['p_height_ch'] = p_height_ch
+    d_out['area_fracs'] = area_fracs
+    d_out['p_aft'] = p_aft
+    d_out['p_width_1090'] = p_width_9010
+    d_out['p_width_2575'] = p_width_7525
+    d_out['p_nfold'] = p_nfold
+    d_out['p_class'] = p_class
+    d_out['p_cut_s1_prominent'] = cut_S1_prominent
+    d_out['p_cut_s2_prominent'] = cut_S2_prominent
+    d_out['s1_area'] = s1_area
+    d_out['s1_area_ch'] = s1_area_ch
+    d_out['s1_phe'] = s1_phe
+    d_out['s1_phe_ch'] = s1_phe_ch
+    d_out['s1_height'] = s1_height
+    d_out['s1_height_ch'] = s1_height_ch
+    d_out['s1_pulse_bounds'] = s1_pulse_bounds
+    d_out['s1_aft'] = s1_aft
+    d_out['s1_width1090'] = s1_width1090
+    d_out['s2_area'] = s2_area
+    d_out['s2_area_ch'] = s2_area_ch
+    d_out['s2_phe'] = s2_phe
+    d_out['s2_phe_ch'] = s2_phe_ch
+    d_out['s2_height'] = s2_height
+    d_out['s2_height_ch'] = s2_height_ch
+    d_out['s2_pulse_bounds'] = s2_pulse_bounds
+    d_out['s2_aft'] = s2_aft
+    d_out['s2_width1090'] = s2_width1090
+    d_out['s2_drift_time'] = s2_drift_time
+    d_out['ch_pos'] = ch_pos
+    d_out['s2_x_raw'] = s2_x_raw
+    d_out['s2_y_raw'] = s2_y_raw
     # for convenience, calculate lateral coordinates in r, theta
-    d['s2_r_raw'] = np.sqrt((s2_x_raw**2) + (s2_y_raw**2))
-    d['s2_theta_raw'] = np.arctan2(s2_y_raw, s2_x_raw)
+    d_out['s2_r_raw'] = np.sqrt((s2_x_raw**2) + (s2_y_raw**2))
+    d_out['s2_theta_raw'] = np.arctan2(s2_y_raw, s2_x_raw)
     
-    return d
+    # Now identify single scatters and create numpy arrays for them
+    d_out['num_s1'] = d_out['s1_phe'].sarray
+    d_out['num_s2'] = d_out['s2_phe'].sarray
+    cut_ss = (d_out['num_s1'] == 1) & (d_out['num_s2'] == 1)
+    d_keys = list(d_out)
+    for item in d_keys:
+        if item.startswith(('s1_','s2_')):
+            d_out[f'ss_{item}'] = d_out[item][cut_ss].flatten()
+    d_out['ss_evt_num'] = np.r_[:d.shape[0]][cut_ss]
+    d_out['ss_full_evt_phe'] = d_out['p_phe'].sum(axis=-1)[cut_ss].data
+    d_out['ss_bad_phe'] = d_out['ss_full_evt_phe'] - d_out['ss_s1_phe'] - d_out['ss_s2_phe']
+    
+    return d_out
 
 def main():
     args = parse_some_args()
     fName = args.raw_file
+    
     fName_list = fName.split('.')
     if args.out_file == 'default':
         rqName_list = [item for item in fName_list if item not in ('bin','gz')]
@@ -318,7 +307,8 @@ def main():
     i_end = num_events_per_iteration
     while (i_end < num_events):
         num_events_load = min(i_end+num_events_per_iteration, num_events) - i_end
-        print(f"...load events {i_end} through {i_end+num_events_load}")
+        #print(f"...load events {i_end} through {i_end+num_events_load}")
+        print(f"PROGRESS: {100*i_end/num_events}% - {fName}", flush=True)
         d_new = process_portion(f'{c.raw_data_path}/{fName}', i_end, num_events_load, c)
         for key in d:
             if isinstance(d[key], va.varray):
