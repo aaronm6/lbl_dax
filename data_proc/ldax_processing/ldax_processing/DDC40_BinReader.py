@@ -65,7 +65,7 @@ def Read_DDC40_metadata(fp):
     
     return waveInfo
 
-def Read_DDC40_fHandle(fp, start_event=0, num_events=-1):
+def Read_DDC40_fHandle(fp, start_event=0, num_events=-1, evt_list=None):
     """
     num_events=-1 means all remaining events in the file
     """
@@ -94,12 +94,12 @@ def Read_DDC40_fHandle(fp, start_event=0, num_events=-1):
     
     # determine how many events to read and make sure we're not trying to read
     # more events than are in the file
-    num_evts_read = waveInfo['num_events_in_file'] if num_events==-1 else num_events
-    num_evts_read = min(num_evts_read, (waveInfo['num_events_in_file']-start_event))
+    if hasattr(evt_list, '__len__'):
+        num_evts_read = len(evt_list)
+    else:
+        num_evts_read = waveInfo['num_events_in_file'] if num_events==-1 else num_events
+        num_evts_read = min(num_evts_read, (waveInfo['num_events_in_file']-start_event))
     waveInfo['num_events_read'] = num_evts_read
-    
-    # Move to the position of the first event that you want to read
-    fp.seek(start_event*event_size_bytes,1)
     
     # Initialize the arrays that holds the waveform data and event-header data
     trig_timestamp = np.empty(num_evts_read, dtype=np.uint64)
@@ -108,16 +108,34 @@ def Read_DDC40_fHandle(fp, start_event=0, num_events=-1):
     waveforms = np.empty((num_evts_read, waveInfo['num_channels'], waveInfo['num_samples']), dtype=np.int16)
     
     # loop through events and fill the arrays
-    for k in trange(num_evts_read, desc="Reading file", leave=False):
-        trig_timestamp[k], = freader(fp, dtype=np.uint64, count=1)
-        trig_seq_num[k], = freader(fp, dtype=np.uint32, count=1)
-        ch_hit_vector[k], = freader(fp, dtype=np.uint64, count=1)
-        
-        waveforms[k,...] = freader(
-            fp, 
-            dtype=np.int16, 
-            count=waveInfo['num_channels']*waveInfo['num_samples']
-        ).reshape(waveInfo['num_channels'],waveInfo['num_samples'])
+    if evt_list is None:
+        # Move to the position of the first event that you want to read
+        fp.seek(start_event*event_size_bytes,1)
+        for k in trange(num_evts_read, desc="Reading file", leave=False):
+            trig_timestamp[k], = freader(fp, dtype=np.uint64, count=1)
+            trig_seq_num[k], = freader(fp, dtype=np.uint32, count=1)
+            ch_hit_vector[k], = freader(fp, dtype=np.uint64, count=1)
+            
+            waveforms[k,...] = freader(
+                fp, 
+                dtype=np.int16, 
+                count=waveInfo['num_channels']*waveInfo['num_samples']
+            ).reshape(waveInfo['num_channels'],waveInfo['num_samples'])
+    else:
+        header_size = fp.tell()
+        for k, idx in enumerate(evt_list):
+            # go to appropriate [absolute] position in file
+            fp.seek(header_size+idx*event_size_bytes,0)
+            
+            trig_timestamp[k], = freader(fp, dtype=np.uint64, count=1)
+            trig_seq_num[k], = freader(fp, dtype=np.uint32, count=1)
+            ch_hit_vector[k], = freader(fp, dtype=np.uint64, count=1)
+            
+            waveforms[k,...] = freader(
+                fp,
+                dtype=np.int16,
+                count=waveInfo['num_channels']*waveInfo['num_samples']
+            ).reshape(waveInfo['num_channels'],waveInfo['num_samples'])
     dataInfo = {}
     dataInfo['trig_timestamp'] = trig_timestamp
     dataInfo['trig_seq_num'] = trig_seq_num
@@ -125,7 +143,7 @@ def Read_DDC40_fHandle(fp, start_event=0, num_events=-1):
     
     return waveforms, dataInfo, waveInfo
 
-def Read_DDC40_fName(fName, start_event=0, num_events=-1):
+def Read_DDC40_fName(fName, start_event=0, num_events=-1, evt_list=None):
     """
     Read waveform data and metadata from a binary file from the DDC40.
     File given by input 'fName' must be in the format produced by the DDC40.  It CAN be gzipped.
@@ -137,6 +155,8 @@ def Read_DDC40_fName(fName, start_event=0, num_events=-1):
                  number of events in the file, minus start_event.  If more than this number
                  are requested, no warnings or errors are given, and the maximum events 
                  available will be read.  Default: -1 (which means all available)
+       evt_list: If given, events with this index will be loaded only (start_event and 
+                 num_events will be ignored).
     Outputs: 
       waveforms: Waveform data.  Format: 3D numpy array of dype np.int16. The dimensions are:
                  (num_events x num_channels x num_samples)
@@ -150,7 +170,11 @@ def Read_DDC40_fName(fName, start_event=0, num_events=-1):
     openner = gzip.open if gzipStatus else open
     
     with openner(fName0, 'rb') as ff:
-        waveform, dataInfo, waveInfo = Read_DDC40_fHandle(ff, start_event=start_event, num_events=num_events)
+        waveform, dataInfo, waveInfo = Read_DDC40_fHandle(
+            ff, 
+            start_event=start_event, 
+            num_events=num_events,
+            evt_list=evt_list)
     waveInfo.update({'filename':fName})
     return waveform, dataInfo, waveInfo
 
