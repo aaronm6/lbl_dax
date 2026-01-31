@@ -91,7 +91,7 @@ def calc_p_bnds(d_chsum_pod, c):
     
     # calculate the boundaries of each pulse
     pulse_sarray = np.empty(d_chsum_pod.shape[0], dtype=np.uint16)
-    for k in range(d_chsum.shape[0]):
+    for k in range(d_chsum_pod.shape[0]):
         n_pulses = (p_starts_evt==k).sum()
         pulse_sarray[k] = n_pulses
     p_bnds = va.varray(
