@@ -94,7 +94,9 @@ def main():
                     '/home/aaronm/pylab/lbl_dax/data_proc/ldax_settings/proc_settings_v001.yaml']
                 #p = subprocess.Popen(popen_list)
                 # run_job_wrapper(progress, task_id, popen_list):
-                thread = threading.Thread(target=run_job_wrapper, args=(popen_list,))
+                thread = threading.Thread(
+                    target=run_job_wrapper, 
+                    args=(progress, task_id, popen_list,))
                 thread.start()
                 files_in_process.append(file_proc)
             # check for processes finished
