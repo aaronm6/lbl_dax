@@ -1,4 +1,19 @@
 from setuptools import setup, Extension, find_packages
+import os, re
+
+def get_version():
+    version_file = os.path.join(
+        os.path.dirname(__file__),
+        'ldax_processing',
+        '_version.py')
+    with open(version_file, 'r') as f:
+        version_match = re.search(
+            r"^__version__ = ['\"]([^'\"]*)['\"]",
+            f.read(),
+            re.M)
+        if version_match:
+            return version_match.group(1)
+        raise RuntimeError("Unable to find version string.")
 
 module = Extension(
     "ldax_processing.c_ldax_proc", 
@@ -6,11 +21,9 @@ module = Extension(
     include_dirs=["src"],
     extra_compile_args=["-Wall"])
 
-#pkgdir = '~/pylab/lbl_dax/data_proc/ldax_processing/ldax_processing/'
-#print(find_packages(include=["ldax_processing"]))
 setup(
     name="ldax_processing",
-    version="1.0.0",
+    version=get_version(),
     description="Data-processing library for ldax",
     author="Aaron Manalaysay",
     license="GPL-2.1",
