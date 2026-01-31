@@ -98,7 +98,7 @@ def main():
                     target=run_job_wrapper, 
                     args=(progress, task_id, popen_list,))
                 thread.start()
-                files_in_process.append(file_proc)
+                files_in_process.append(thread)
             # check for processes finished
             files_in_process = [item for item in files_in_process if item.is_alive()]
             sleep(1)
