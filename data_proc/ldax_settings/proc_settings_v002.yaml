@@ -18,16 +18,18 @@ filter_function: 'filter_lowpass_RC'
 filter_RC_bw: 0.1
 filter_RC_poles: 10
 
-pod_bool_func: 'pod_bool_calc'
+pod_bool_ch_func: 'pod_bool_per_ch'
 ch_podbool_thresh: 2.5
 ch_podbool_prepodsamples: 15
 ch_podbool_postpodsamples: 20
 
+pod_bool_sum_func: 'pod_bool_sum_ch'
 sm_podbool_thresh: 3.0
 sm_podbool_prepodsamples: 15
 sm_podbool_postpodsamples: 20
 sm_merge_islands_width: 10
 
+p_bnds_func: 'calc_p_bnds'
 split_amp_frac: 0.04
 split_amp_max: 40.
 split_quiet_samples: 60
