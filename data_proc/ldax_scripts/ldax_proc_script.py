@@ -43,7 +43,7 @@ def process_portion(filename_and_path, start_event, num_events, c):
     
     # determine baseline
     baseline_estimator = getattr(lan, c.baseline_estimator)
-    d_bs_est = basline_estimator(d, c)
+    d_bs_est = baseline_estimator(d, c)
 
     # subtract baselines
     d = d - d_bs_est
