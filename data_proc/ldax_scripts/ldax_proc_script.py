@@ -70,7 +70,7 @@ def process_portion(filename_and_path, start_event, num_events, c):
     d_chsum_pod = pod_bool_sum_func(d_chsum, c)
     
     get_p_bnds = getattr(lan, c.p_bnds_func)
-    p_bnds = get_p_bnds(d_chsum_pod, c)
+    p_bnds = get_p_bnds(d_chsum, d_chsum_pod, c)
     
     # calculate pulse areas (sum and individual)
     p_area = va.varray(darray=ldax.get_pA(d_chsum, p_bnds.flatten(), p_bnds.sarray), sarray=p_bnds.sarray)

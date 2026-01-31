@@ -72,7 +72,7 @@ def pod_bool_sum_ch(d_chsum, c):
     
     return d_chsum_pod
 
-def calc_p_bnds(d_chsum_pod, c):
+def calc_p_bnds(d_chsum,d_chsum_pod, c):
     """
     Take the boolean area (of waveforms summed over channel) and produce a varray of
     pulse boundaries.  The varray is of size (num_evt x 2 x num_pulses), where the
