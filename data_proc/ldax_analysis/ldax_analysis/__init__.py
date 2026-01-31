@@ -1,6 +1,6 @@
-from ._version import __version__
-from .analysis_utils import *
-from .proc_modules import *
+from ldax_analysis._version import __version__
+from ldax_analysis.analysis_utils import *
+from ldax_analysis.proc_modules import *
 
 del analysis_utils
 del proc_modules
