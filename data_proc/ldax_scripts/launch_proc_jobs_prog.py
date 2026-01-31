@@ -91,7 +91,7 @@ def main():
                     '-f',
                     f'{file_proc}.bin.gz',
                     '-c',
-                    '/home/aaronm/pylab/lbl_dax/data_proc/ldax_settings/proc_settings_v001.yaml']
+                    args.conf_file]
                 #p = subprocess.Popen(popen_list)
                 # run_job_wrapper(progress, task_id, popen_list):
                 thread = threading.Thread(
