@@ -231,9 +231,9 @@ def process_portion(filename_and_path, start_event, num_events, c):
     s2_y_raw = (s2_phe_ch[:,:16,...]*va_ch_pos_y).sum(axis=1) / s2_top
     
     # Calculate variance of x and y, and covariance of x,y
-    s2_var_x_raw = (s2_phe_ch[:,:16,...]*(va_ch_pos_x**2)).sum(axis=1)/S2_top - (s2_x_raw**2)
-    s2_var_y_raw = (s2_phe_ch[:,:16,...]*(va_ch_pos_y**2)).sum(axis=1)/S2_top - (s2_y_raw**2)
-    s2_var_xy_raw = (s2_phe_ch[:,:16,...]*va_ch_pos_x*va_ch_pos_y).sum(axis=1)/S2_top - s2_x_raw * s2_y_raw
+    s2_var_x_raw = (s2_phe_ch[:,:16,...]*(va_ch_pos_x**2)).sum(axis=1)/s2_top - (s2_x_raw**2)
+    s2_var_y_raw = (s2_phe_ch[:,:16,...]*(va_ch_pos_y**2)).sum(axis=1)/s2_top - (s2_y_raw**2)
+    s2_var_xy_raw = (s2_phe_ch[:,:16,...]*va_ch_pos_x*va_ch_pos_y).sum(axis=1)/s2_top - s2_x_raw * s2_y_raw
     
     # collect RQs into dictionary
     # e_ means an event-level quantity
