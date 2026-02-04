@@ -376,7 +376,10 @@ def main():
     
     
     # save RQs to file
-    va.save(f'{c.rq_path}/{rqName}', **d)
+    if args.out_file == 'default':
+        va.save(f'{c.rq_path}/{rqName}', **d)
+    else:
+        va.save(rqName, **d)
 
 if __name__ == "__main__":
     tracemalloc.start()
