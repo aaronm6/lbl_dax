@@ -6,6 +6,7 @@ import varray as va
 import tracemalloc
 import argparse
 import yaml
+import re
 
 def parse_some_args():
     parser = argparse.ArgumentParser(description="Process LDAX DDC40 data")
@@ -25,18 +26,44 @@ class dict_attr(dict):
     def __getattr__(self, item):
         return self.__getitem__(item)
 
+def get_filename_ints_from_fullpath(filename_and_path):
+    """
+    Raw filenames might be e.g. '2026-02-02-1438.bin.gz' or '2026-02-03-0810_000003.bin.gz'
+    We want to extract two integers from these filenames that make it easy to include them
+    in arrays that can be carried with data sets when multiple datasets are compiled 
+    together.  This function converts the filename into two integers:
+        filename tag (uint64), filename iteration (int16)
+    '2026-02-03-0810_000003.bin.gz' -> (202602030810, 3)
+    '2026-02-02-1438.bin.gz'        -> (202602021438, -1)
+    """
+    file_no_suffix = re.search(f'(.*).bin',os.path.basename(filename_and_path)).groups()[0]
+    tag_patt = r'(\d{4})-(\d{2})-(\d{2})-(\d{4})'
+    iter_patt = r'_(\d+)'
+    tag_str = ''.join(re.search(tag_patt, file_no_suffix).groups())
+    tag_int = np.uint64(tag_str)
+    iter_search = re.search(iter_patt, file_no_suffix)
+    iter_int = np.int16(-1)
+    if iter_search:
+        iter_int = np.int16(iter_search.groups()[0])
+    return tag_int, iter_int
+
 def process_portion(filename_and_path, start_event, num_events, c):
     """
     c is a dict_attr object with loaded settings from the conf file
     """
+    # process filename into ints
+    fname_int, fname_iter = get_filename_ints_from_fullpath(filename_and_path)
+    
     # load data
     d, _, _ = ldax.Read_DDC40_fName(filename_and_path, start_event=start_event, num_events=num_events)
     
     # determine number of events; should be the same as num_events, but this will see what it really is
     num_events_loaded = d.shape[0]
-    event_id = np.r_[:num_events_loaded] + start_event
     
-    # get the
+    # prepare the arrays that hold the event_id, the file_tag and the file_iteration
+    event_id = np.r_[:num_events_loaded] + start_event
+    file_tags = np.full(num_events_loaded, fname_int)
+    file_iters = np.full(num_events_loaded, fname_iter)
     
     # convert waveform from dtype=int16 to dtype=float64
     d = d.astype(float)
@@ -97,7 +124,7 @@ def process_portion(filename_and_path, start_event, num_events, c):
     p_width_7525 = p_aft[:,-3,:] - p_aft[:,2,:]
     
     # determin n-fold coincidence
-    p_nfold = (p_area_ch > (1e-3)).sum(axis=1)
+    p_nfold = (p_height_ch > c.ch_podbool_thresh).sum(axis=1)
     
     # perform first-pass pulse classification
     # pulse identity: 0 (other); 1 (s1); 2 (s2); 3 (SPE)
@@ -138,13 +165,15 @@ def process_portion(filename_and_path, start_event, num_events, c):
     s1_pulse_bounds      = p_bnds[cut_S1_prominent]
     s1_aft               = p_aft[cut_S1_prominent]
     s1_width1090         = p_width_9010[cut_S1_prominent]
+    s1_maf               = s1_area_ch.max(axis=1) / s1_area  # max area fraction
+    s1_mhf               = s1_height_ch.max(axis=1) / s1_height # max height fraction
     
     # create S2 RQs
     s2_area              = p_area[cut_S2_prominent]
     s2_area_ch           = p_area_ch[cut_S2_prominent]
     s2_height            = p_height[cut_S2_prominent]
     s2_height_ch         = p_height_ch[cut_S2_prominent]
-    s2_pulse_bounds      = p_bnds[cut_S1_prominent]
+    s2_pulse_bounds      = p_bnds[cut_S2_prominent]
     s2_aft               = p_aft[cut_S2_prominent]
     s2_width1090         = p_width_9010[cut_S2_prominent]
     
@@ -189,25 +218,6 @@ def process_portion(filename_and_path, start_event, num_events, c):
         for k1 in range(sipm_i_rel_center_positions_mm.shape[0]):
             ch_pos[k4*sipm2x2_centers_mm.shape[0] + k1,:] = \
                 sipm2x2_centers_mm[k4,:] + sipm_i_rel_center_positions_mm[k1,:]
-    """
-    ch_pos = np.array([
-        [1.5,1.5],
-        [1.5,0.5],
-        [0.5,0.5],
-        [0.5,1.5],
-        [1.5,-0.5],
-        [1.5,-1.5],
-        [0.5,-1.5],
-        [0.5,-0.5],
-        [-0.5,-0.5],
-        [-0.5,-1.5],
-        [-1.5,-1.5],
-        [-1.5,-0.5],
-        [-0.5,1.5],
-        [-0.5,0.5],
-        [-1.5,0.5],
-        [-1.5,1.5]])
-    """
     # here with raw pulse areas in units of phe
     s2_top = s2_phe_ch[:,:16,:].sum(axis=1)
     s2_top[s2_top<=0.] = 1.
@@ -220,8 +230,21 @@ def process_portion(filename_and_path, start_event, num_events, c):
     s2_x_raw = (s2_phe_ch[:,:16,...]*va_ch_pos_x).sum(axis=1) / s2_top
     s2_y_raw = (s2_phe_ch[:,:16,...]*va_ch_pos_y).sum(axis=1) / s2_top
     
+    # Calculate variance of x and y, and covariance of x,y
+    s2_var_x_raw = (s2_phe_ch[:,:16,...]*(va_ch_pos_x**2)).sum(axis=1)/S2_top - (s2_x_raw**2)
+    s2_var_y_raw = (s2_phe_ch[:,:16,...]*(va_ch_pos_y**2)).sum(axis=1)/S2_top - (s2_y_raw**2)
+    s2_var_xy_raw = (s2_phe_ch[:,:16,...]*va_ch_pos_x*va_ch_pos_y).sum(axis=1)/S2_top - s2_x_raw * s2_y_raw
+    
     # collect RQs into dictionary
+    # e_ means an event-level quantity
+    # p_ means pulse-level quantity (agnostic of classification)
+    # s1_ means quantities applying to pulses that are prominent S1s
+    # s2_ means quantities applying to pulses that are prominent S2s
+    # ss_ means single-scatter quantities (these are ndarrays)
     d_out = {}
+    d_out['e_event_id'] = event_id
+    d_out['e_file_tags'] = file_tags
+    d_out['e_file_iters'] = file_iters
     d_out['p_bnds'] = p_bnds
     d_out['p_area'] = p_area
     d_out['p_area_ch'] = p_area_ch
@@ -229,7 +252,7 @@ def process_portion(filename_and_path, start_event, num_events, c):
     d_out['p_phe_ch'] = p_phe_ch
     d_out['p_height'] = p_height
     d_out['p_height_ch'] = p_height_ch
-    d_out['area_fracs'] = area_fracs
+    d_out['ref_area_fracs'] = area_fracs
     d_out['p_aft'] = p_aft
     d_out['p_width_1090'] = p_width_9010
     d_out['p_width_2575'] = p_width_7525
@@ -246,6 +269,8 @@ def process_portion(filename_and_path, start_event, num_events, c):
     d_out['s1_pulse_bounds'] = s1_pulse_bounds
     d_out['s1_aft'] = s1_aft
     d_out['s1_width1090'] = s1_width1090
+    d_out['s1_maf'] = s1_maf
+    d_out['s1_mhf'] = s1_mhf
     d_out['s2_area'] = s2_area
     d_out['s2_area_ch'] = s2_area_ch
     d_out['s2_phe'] = s2_phe
@@ -256,7 +281,7 @@ def process_portion(filename_and_path, start_event, num_events, c):
     d_out['s2_aft'] = s2_aft
     d_out['s2_width1090'] = s2_width1090
     d_out['s2_drift_time'] = s2_drift_time
-    d_out['ch_pos'] = ch_pos
+    d_out['ref_ch_pos'] = ch_pos
     d_out['s2_x_raw'] = s2_x_raw
     d_out['s2_y_raw'] = s2_y_raw
     # for convenience, calculate lateral coordinates in r, theta
@@ -269,7 +294,7 @@ def process_portion(filename_and_path, start_event, num_events, c):
     cut_ss = (d_out['num_s1'] == 1) & (d_out['num_s2'] == 1)
     d_keys = list(d_out)
     for item in d_keys:
-        if item.startswith(('s1_','s2_')):
+        if item.startswith(('s1_','s2_','e_')):
             d_out[f'ss_{item}'] = d_out[item][cut_ss].flatten()
     d_out['ss_evt_num'] = np.r_[:d.shape[0]][cut_ss]
     d_out['ss_full_evt_phe'] = d_out['p_phe'].sum(axis=-1)[cut_ss].data
@@ -302,30 +327,53 @@ def main():
     num_events = header['num_events_in_file']
     
     num_events_per_iteration = min(1000, num_events)
-    
-    d = process_portion(f'{c.raw_data_path}/{fName}', 0, num_events_per_iteration, c)
+    d_list = []
+    d_list.append(process_portion(f'{c.raw_data_path}/{fName}', 0, num_events_per_iteration, c))
     i_end = num_events_per_iteration
     while (i_end < num_events):
         num_events_load = min(i_end+num_events_per_iteration, num_events) - i_end
         #print(f"...load events {i_end} through {i_end+num_events_load}")
         print(f"PROGRESS: {100*i_end/num_events}% - {fName}", flush=True)
-        d_new = process_portion(f'{c.raw_data_path}/{fName}', i_end, num_events_load, c)
+        #d_new = process_portion(f'{c.raw_data_path}/{fName}', i_end, num_events_load, c)
+        d_list.append(process_portion(f'{c.raw_data_path}/{fName}', i_end, num_events_load, c))
+        """
         for key in d:
             if isinstance(d[key], va.varray):
                 d[key] = va.row_concat([d[key], d_new[key]])
+        """
         i_end += num_events_per_iteration
+    
+    d = {}
+    d_keys = list(d_list[0])
+    for key in d_keys:
+        if not key.startswith('ref_'):
+            if isinstance(d_list[0][key], va.varray):
+                d[key] = va.row_concat([item[key] for item in d_list])
+            elif isinstance(d_list[0][key], np.ndarray):
+                d[key] = np.concatenate([item[key] for item in d_list], axis=-1)
+        else:
+            d[key] = d_list[0][key] # channel-position map, area fractions, etc.
     
     # collect header info into RQs dict
     for item in header:
         d['h_'+item] = header[item]
     
     # collect data info into RQs dict
-    for item in d_info:
-        d['d_'+item] = d_info[item]
+    #for item in d_info:
+    #    d['d_'+item] = d_info[item]
     
     # add info regarding config file
     d['config_version'] = c.config_version
     d['sipm_spe_areas'] = c.sipm_spe_areas
+    if hasattr(ldax, 'version'):
+        d['ldax_processing_version'] = ldax.version
+    else
+        d['ldax_processing_version'] = 'none'
+    if hasattr(lan, 'version'):
+        d['ldax_analysis_version'] = lan.version
+    else
+        d['ldax_analysis_version'] = 'none'
+    
     
     # save RQs to file
     va.save(f'{c.rq_path}/{rqName}', **d)
