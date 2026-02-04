@@ -367,7 +367,7 @@ def main():
     d['sipm_spe_areas'] = c.sipm_spe_areas
     if hasattr(ldax, 'version'):
         d['ldax_processing_version'] = ldax.version
-    else
+    else:
         d['ldax_processing_version'] = 'none'
     if hasattr(lan, 'version'):
         d['ldax_analysis_version'] = lan.version
