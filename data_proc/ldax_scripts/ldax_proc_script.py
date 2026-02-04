@@ -371,7 +371,7 @@ def main():
         d['ldax_processing_version'] = 'none'
     if hasattr(lan, 'version'):
         d['ldax_analysis_version'] = lan.version
-    else
+    else:
         d['ldax_analysis_version'] = 'none'
     
     
