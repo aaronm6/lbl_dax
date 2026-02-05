@@ -1,10 +1,12 @@
 import os, sys
 import numpy as np
 import ldax_processing as ldax
+import ldax_analysis as lan
 import varray as va
 import tracemalloc
 import argparse
 import yaml
+import re
 
 def parse_some_args():
     parser = argparse.ArgumentParser(description="Process LDAX DDC40 data")
@@ -24,42 +26,65 @@ class dict_attr(dict):
     def __getattr__(self, item):
         return self.__getitem__(item)
 
+def get_filename_ints_from_fullpath(filename_and_path):
+    """
+    Raw filenames might be e.g. '2026-02-02-1438.bin.gz' or '2026-02-03-0810_000003.bin.gz'
+    We want to extract two integers from these filenames that make it easy to include them
+    in arrays that can be carried with data sets when multiple datasets are compiled 
+    together.  This function converts the filename into two integers:
+        filename tag (uint64), filename iteration (int16)
+    '2026-02-03-0810_000003.bin.gz' -> (202602030810, 3)
+    '2026-02-02-1438.bin.gz'        -> (202602021438, -1)
+    """
+    file_no_suffix = re.search(f'(.*).bin',os.path.basename(filename_and_path)).groups()[0]
+    tag_patt = r'(\d{4})-(\d{2})-(\d{2})-(\d{4})'
+    iter_patt = r'_(\d+)'
+    tag_str = ''.join(re.search(tag_patt, file_no_suffix).groups())
+    tag_int = np.uint64(tag_str)
+    iter_search = re.search(iter_patt, file_no_suffix)
+    iter_int = np.int16(-1)
+    if iter_search:
+        iter_int = np.int16(iter_search.groups()[0])
+    return tag_int, iter_int
+
 def process_portion(filename_and_path, start_event, num_events, c):
     """
     c is a dict_attr object with loaded settings from the conf file
     """
+    # process filename into ints
+    fname_int, fname_iter = get_filename_ints_from_fullpath(filename_and_path)
+    
     # load data
     d, _, _ = ldax.Read_DDC40_fName(filename_and_path, start_event=start_event, num_events=num_events)
+    
+    # determine number of events; should be the same as num_events, but this will see what it really is
+    num_events_loaded = d.shape[0]
+    
+    # prepare the arrays that hold the event_id, the file_tag and the file_iteration
+    event_id = np.r_[:num_events_loaded] + start_event
+    file_tags = np.full(num_events_loaded, fname_int)
+    file_iters = np.full(num_events_loaded, fname_iter)
     
     # convert waveform from dtype=int16 to dtype=float64
     d = d.astype(float)
     
-    # compute pulse-finding filtered waveform, "d_find" and create boolean mask based on it
-    d_find = ldax.lowpass_ngdd(d, 0.15)
-    d_find_mask = ldax.ngdd_filt_mask(
-        d_find,
-        thresh=c.find_mask_thresh,
-        pre_samples_add=c.find_mask_pre_samples_add,
-        post_samples_add=c.find_mask_post_samples_add)
-    ldax.merge_islands(d_find_mask, width=c.chfind_merge_islands_width)
-    
-    # calculate per-channel-per-event baseline curves from a running average, masked of pulses
-    d_bs_est = ldax.baseline_update(d, d_find_mask, alpha=c.bs_est_alpha)
-    
+    # determine baseline
+    baseline_estimator = getattr(lan, c.baseline_estimator)
+    d_bs_est = baseline_estimator(d, c)
+
     # subtract baselines
     d = d - d_bs_est
     
     # compute the full event areas (summed over channels)
-    e_area_raw = d.sum(axis=1).sum(axis=-1)
+    #e_area_raw = d.sum(axis=1).sum(axis=-1)
     
     # perform low-pass filter to suppress HF noise:
-    d_filt = ldax.lowpass_RC(d, c.filter_RC_bw, n=c.filter_RC_poles)
+    filter_function = getattr(lan, c.filter_function)
+    d_filt = filter_function(d, c)
     
-    # find pods, creating a boolean per-channel array that identifies pods
-    pod_bool = ldax.pod_boolean(d_filt, 
-        thresh=c.ch_podbool_thresh, 
-        prepod_samples=c.ch_podbool_prepodsamples, 
-        postpod_samples=c.ch_podbool_postpodsamples)
+    # create a per-channel boolean that is true where there are pods
+    pod_bool_ch_func = getattr(lan, c.pod_bool_ch_func)
+    pod_bool = pod_bool_ch_func(d_filt, c)
     
     # suppress the baseline of each waveform outside of a pod:
     d_filt[~pod_bool] = 0.
@@ -68,42 +93,11 @@ def process_portion(filename_and_path, start_event, num_events, c):
     d_chsum = d_filt[:,:32,:].sum(axis=1)
     
     # recompute another podding, based on sum waveform
-    d_chsum_pod = ldax.pod_boolean(d_chsum, 
-        thresh=c.sm_podbool_thresh, 
-        prepod_samples=c.sm_podbool_prepodsamples, 
-        postpod_samples=c.sm_podbool_postpodsamples)
-    ldax.merge_islands(d_chsum_pod, width=c.sm_merge_islands_width)
+    pod_bool_sum_func = getattr(lan, c.pod_bool_sum_func)
+    d_chsum_pod = pod_bool_sum_func(d_chsum, c)
     
-    # Make sure the start and end of the waveform are not part of a pulse
-    d_chsum_pod[:,0] = False
-    d_chsum_pod[:,-1] = False
-    
-    # Get the pod starts and stops -- this will form the first guess at the pulse boundaries.
-    p_starts_evt, p_starts_samp = np.nonzero(np.diff(d_chsum_pod.astype(np.int8),axis=-1)==1)
-    p_stops_evt, p_stops_samp = np.nonzero(np.diff(d_chsum_pod.astype(np.int8),axis=-1)==-1)
-    
-    # check that there are the same number of starts and stops in each event
-    if len(p_starts_evt) != len(p_stops_evt):
-        raise ValueError("The number of pulse starts and stops must be the same in each event")
-    if not (p_starts_evt == p_stops_evt).all():
-        raise ValueError("The number of pod starts and stops is not the same")
-    
-    # calculate the boundaries of each pulse
-    pulse_sarray = np.empty(d_chsum.shape[0], dtype=np.uint16)
-    for k in range(d_chsum.shape[0]):
-        n_pulses = (p_starts_evt==k).sum()
-        pulse_sarray[k] = n_pulses
-    p_bnds = va.varray(
-        darray=np.vstack([p_starts_samp+1, p_stops_samp]), sarray=pulse_sarray, dtype=np.uint32)
-    
-    # Split off low-amplitude tails from pulses; needs to be done several times
-    split_dict = {
-        'amp_frac': c.split_amp_frac,
-        'amp_max': c.split_amp_max,
-        'quiet_samples': c.split_quiet_samples,
-        'buffer_samples': c.split_buffer_samples}
-    for k in range(c.split_iterations):
-        p_bnds = va.varray(ldax.split_pulses(p_bnds.flatten(), p_bnds.sarray,d_chsum, **split_dict))
+    get_p_bnds = getattr(lan, c.p_bnds_func)
+    p_bnds = get_p_bnds(d_chsum, d_chsum_pod, c)
     
     # calculate pulse areas (sum and individual)
     p_area = va.varray(darray=ldax.get_pA(d_chsum, p_bnds.flatten(), p_bnds.sarray), sarray=p_bnds.sarray)
@@ -130,7 +124,7 @@ def process_portion(filename_and_path, start_event, num_events, c):
     p_width_7525 = p_aft[:,-3,:] - p_aft[:,2,:]
     
     # determin n-fold coincidence
-    p_nfold = (p_area_ch > (1e-3)).sum(axis=1)
+    p_nfold = (p_height_ch > c.ch_podbool_thresh).sum(axis=1)
     
     # perform first-pass pulse classification
     # pulse identity: 0 (other); 1 (s1); 2 (s2); 3 (SPE)
@@ -171,13 +165,15 @@ def process_portion(filename_and_path, start_event, num_events, c):
     s1_pulse_bounds      = p_bnds[cut_S1_prominent]
     s1_aft               = p_aft[cut_S1_prominent]
     s1_width1090         = p_width_9010[cut_S1_prominent]
+    s1_maf               = s1_area_ch.max(axis=1) / s1_area  # max area fraction
+    s1_mhf               = s1_height_ch.max(axis=1) / s1_height # max height fraction
     
     # create S2 RQs
     s2_area              = p_area[cut_S2_prominent]
     s2_area_ch           = p_area_ch[cut_S2_prominent]
     s2_height            = p_height[cut_S2_prominent]
     s2_height_ch         = p_height_ch[cut_S2_prominent]
-    s2_pulse_bounds      = p_bnds[cut_S1_prominent]
+    s2_pulse_bounds      = p_bnds[cut_S2_prominent]
     s2_aft               = p_aft[cut_S2_prominent]
     s2_width1090         = p_width_9010[cut_S2_prominent]
     
@@ -222,25 +218,6 @@ def process_portion(filename_and_path, start_event, num_events, c):
         for k1 in range(sipm_i_rel_center_positions_mm.shape[0]):
             ch_pos[k4*sipm2x2_centers_mm.shape[0] + k1,:] = \
                 sipm2x2_centers_mm[k4,:] + sipm_i_rel_center_positions_mm[k1,:]
-    """
-    ch_pos = np.array([
-        [1.5,1.5],
-        [1.5,0.5],
-        [0.5,0.5],
-        [0.5,1.5],
-        [1.5,-0.5],
-        [1.5,-1.5],
-        [0.5,-1.5],
-        [0.5,-0.5],
-        [-0.5,-0.5],
-        [-0.5,-1.5],
-        [-1.5,-1.5],
-        [-1.5,-0.5],
-        [-0.5,1.5],
-        [-0.5,0.5],
-        [-1.5,0.5],
-        [-1.5,1.5]])
-    """
     # here with raw pulse areas in units of phe
     s2_top = s2_phe_ch[:,:16,:].sum(axis=1)
     s2_top[s2_top<=0.] = 1.
@@ -253,54 +230,82 @@ def process_portion(filename_and_path, start_event, num_events, c):
     s2_x_raw = (s2_phe_ch[:,:16,...]*va_ch_pos_x).sum(axis=1) / s2_top
     s2_y_raw = (s2_phe_ch[:,:16,...]*va_ch_pos_y).sum(axis=1) / s2_top
     
-    # collect RQs into dictionary
-    d = {}
-    d['p_bnds'] = p_bnds
-    d['p_area'] = p_area
-    d['p_area_ch'] = p_area_ch
-    d['p_phe'] = p_phe
-    d['p_phe_ch'] = p_phe_ch
-    d['p_height'] = p_height
-    d['p_height_ch'] = p_height_ch
-    d['area_fracs'] = area_fracs
-    d['p_aft'] = p_aft
-    d['p_width_1090'] = p_width_9010
-    d['p_width_2575'] = p_width_7525
-    d['p_nfold'] = p_nfold
-    d['p_class'] = p_class
-    d['p_cut_s1_prominent'] = cut_S1_prominent
-    d['p_cut_s2_prominent'] = cut_S2_prominent
-    d['s1_area'] = s1_area
-    d['s1_area_ch'] = s1_area_ch
-    d['s1_phe'] = s1_phe
-    d['s1_phe_ch'] = s1_phe_ch
-    d['s1_height'] = s1_height
-    d['s1_height_ch'] = s1_height_ch
-    d['s1_pulse_bounds'] = s1_pulse_bounds
-    d['s1_aft'] = s1_aft
-    d['s1_width1090'] = s1_width1090
-    d['s2_area'] = s2_area
-    d['s2_area_ch'] = s2_area_ch
-    d['s2_phe'] = s2_phe
-    d['s2_phe_ch'] = s2_phe_ch
-    d['s2_height'] = s2_height
-    d['s2_height_ch'] = s2_height_ch
-    d['s2_pulse_bounds'] = s2_pulse_bounds
-    d['s2_aft'] = s2_aft
-    d['s2_width1090'] = s2_width1090
-    d['s2_drift_time'] = s2_drift_time
-    d['ch_pos'] = ch_pos
-    d['s2_x_raw'] = s2_x_raw
-    d['s2_y_raw'] = s2_y_raw
-    # for convenience, calculate lateral coordinates in r, theta
-    d['s2_r_raw'] = np.sqrt((s2_x_raw**2) + (s2_y_raw**2))
-    d['s2_theta_raw'] = np.arctan2(s2_y_raw, s2_x_raw)
+    # Calculate variance of x and y, and covariance of x,y
+    s2_var_x_raw = (s2_phe_ch[:,:16,...]*(va_ch_pos_x**2)).sum(axis=1)/s2_top - (s2_x_raw**2)
+    s2_var_y_raw = (s2_phe_ch[:,:16,...]*(va_ch_pos_y**2)).sum(axis=1)/s2_top - (s2_y_raw**2)
+    s2_var_xy_raw = (s2_phe_ch[:,:16,...]*va_ch_pos_x*va_ch_pos_y).sum(axis=1)/s2_top - s2_x_raw * s2_y_raw
     
-    return d
+    # collect RQs into dictionary
+    # e_ means an event-level quantity
+    # p_ means pulse-level quantity (agnostic of classification)
+    # s1_ means quantities applying to pulses that are prominent S1s
+    # s2_ means quantities applying to pulses that are prominent S2s
+    # ss_ means single-scatter quantities (these are ndarrays)
+    d_out = {}
+    d_out['e_event_id'] = event_id
+    d_out['e_file_tags'] = file_tags
+    d_out['e_file_iters'] = file_iters
+    d_out['p_bnds'] = p_bnds
+    d_out['p_area'] = p_area
+    d_out['p_area_ch'] = p_area_ch
+    d_out['p_phe'] = p_phe
+    d_out['p_phe_ch'] = p_phe_ch
+    d_out['p_height'] = p_height
+    d_out['p_height_ch'] = p_height_ch
+    d_out['ref_area_fracs'] = area_fracs
+    d_out['p_aft'] = p_aft
+    d_out['p_width_1090'] = p_width_9010
+    d_out['p_width_2575'] = p_width_7525
+    d_out['p_nfold'] = p_nfold
+    d_out['p_class'] = p_class
+    d_out['p_cut_s1_prominent'] = cut_S1_prominent
+    d_out['p_cut_s2_prominent'] = cut_S2_prominent
+    d_out['s1_area'] = s1_area
+    d_out['s1_area_ch'] = s1_area_ch
+    d_out['s1_phe'] = s1_phe
+    d_out['s1_phe_ch'] = s1_phe_ch
+    d_out['s1_height'] = s1_height
+    d_out['s1_height_ch'] = s1_height_ch
+    d_out['s1_pulse_bounds'] = s1_pulse_bounds
+    d_out['s1_aft'] = s1_aft
+    d_out['s1_width1090'] = s1_width1090
+    d_out['s1_maf'] = s1_maf
+    d_out['s1_mhf'] = s1_mhf
+    d_out['s2_area'] = s2_area
+    d_out['s2_area_ch'] = s2_area_ch
+    d_out['s2_phe'] = s2_phe
+    d_out['s2_phe_ch'] = s2_phe_ch
+    d_out['s2_height'] = s2_height
+    d_out['s2_height_ch'] = s2_height_ch
+    d_out['s2_pulse_bounds'] = s2_pulse_bounds
+    d_out['s2_aft'] = s2_aft
+    d_out['s2_width1090'] = s2_width1090
+    d_out['s2_drift_time'] = s2_drift_time
+    d_out['ref_ch_pos'] = ch_pos
+    d_out['s2_x_raw'] = s2_x_raw
+    d_out['s2_y_raw'] = s2_y_raw
+    # for convenience, calculate lateral coordinates in r, theta
+    d_out['s2_r_raw'] = np.sqrt((s2_x_raw**2) + (s2_y_raw**2))
+    d_out['s2_theta_raw'] = np.arctan2(s2_y_raw, s2_x_raw)
+    
+    # Now identify single scatters and create numpy arrays for them
+    d_out['num_s1'] = d_out['s1_phe'].sarray
+    d_out['num_s2'] = d_out['s2_phe'].sarray
+    cut_ss = (d_out['num_s1'] == 1) & (d_out['num_s2'] == 1)
+    d_keys = list(d_out)
+    for item in d_keys:
+        if item.startswith(('s1_','s2_','e_')):
+            d_out[f'ss_{item}'] = d_out[item][cut_ss].flatten()
+    d_out['ss_evt_num'] = np.r_[:d.shape[0]][cut_ss]
+    d_out['ss_full_evt_phe'] = d_out['p_phe'].sum(axis=-1)[cut_ss].data
+    d_out['ss_bad_phe'] = d_out['ss_full_evt_phe'] - d_out['ss_s1_phe'] - d_out['ss_s2_phe']
+    
+    return d_out
 
 def main():
     args = parse_some_args()
     fName = args.raw_file
+    
     fName_list = fName.split('.')
     if args.out_file == 'default':
         rqName_list = [item for item in fName_list if item not in ('bin','gz')]
@@ -322,32 +327,59 @@ def main():
     num_events = header['num_events_in_file']
     
     num_events_per_iteration = min(1000, num_events)
-    
-    d = process_portion(f'{c.raw_data_path}/{fName}', 0, num_events_per_iteration, c)
+    d_list = []
+    d_list.append(process_portion(f'{c.raw_data_path}/{fName}', 0, num_events_per_iteration, c))
     i_end = num_events_per_iteration
     while (i_end < num_events):
         num_events_load = min(i_end+num_events_per_iteration, num_events) - i_end
-        print(f"...load events {i_end} through {i_end+num_events_load}")
-        d_new = process_portion(f'{c.raw_data_path}/{fName}', i_end, num_events_load, c)
+        #print(f"...load events {i_end} through {i_end+num_events_load}")
+        print(f"PROGRESS: {100*i_end/num_events}% - {fName}", flush=True)
+        #d_new = process_portion(f'{c.raw_data_path}/{fName}', i_end, num_events_load, c)
+        d_list.append(process_portion(f'{c.raw_data_path}/{fName}', i_end, num_events_load, c))
+        """
         for key in d:
             if isinstance(d[key], va.varray):
                 d[key] = va.row_concat([d[key], d_new[key]])
+        """
         i_end += num_events_per_iteration
+    
+    d = {}
+    d_keys = list(d_list[0])
+    for key in d_keys:
+        if not key.startswith('ref_'):
+            if isinstance(d_list[0][key], va.varray):
+                d[key] = va.row_concat([item[key] for item in d_list])
+            elif isinstance(d_list[0][key], np.ndarray):
+                d[key] = np.concatenate([item[key] for item in d_list], axis=-1)
+        else:
+            d[key] = d_list[0][key] # channel-position map, area fractions, etc.
     
     # collect header info into RQs dict
     for item in header:
         d['h_'+item] = header[item]
     
     # collect data info into RQs dict
-    for item in d_info:
-        d['d_'+item] = d_info[item]
+    #for item in d_info:
+    #    d['d_'+item] = d_info[item]
     
     # add info regarding config file
     d['config_version'] = c.config_version
     d['sipm_spe_areas'] = c.sipm_spe_areas
+    if hasattr(ldax, 'version'):
+        d['ldax_processing_version'] = ldax.version
+    else:
+        d['ldax_processing_version'] = 'none'
+    if hasattr(lan, 'version'):
+        d['ldax_analysis_version'] = lan.version
+    else:
+        d['ldax_analysis_version'] = 'none'
+    
     
     # save RQs to file
-    va.save(f'{c.rq_path}/{rqName}', **d)
+    if args.out_file == 'default':
+        va.save(f'{c.rq_path}/{rqName}', **d)
+    else:
+        va.save(rqName, **d)
 
 if __name__ == "__main__":
     tracemalloc.start()
