@@ -2,6 +2,7 @@
 Utilities for analysis, like plotting routines
 """
 import numpy as np
+import varray as va
 import matplotlib.pyplot as plt
 from matplotlib.collections import PatchCollection
 from matplotlib.patches import Rectangle, Circle
@@ -49,7 +50,31 @@ def plot_top_pattern(hit_i, ax=None, cmap=None, add_circ=True):
         ax.add_patch(tpc_circle)
     return hit_collection
 
-
-
+def concat_RQ_files(filename_list, RQ_list=None):
+    """
+    Given a list of RQ files, load each, and concatenate their varrays and ndarrays
+    
+    This is useful e.g. when a raw dataset has been split into multiple smaller data sets.
+    
+    If RQ_list is given (a list of strings), then these RQs will be saved and concatenated,
+    otherwise all the keys available will be concatenated.
+    
+    Header and version information is not copied
+    """
+    if not isinstance(filename_list, (list, tuple)):
+        raise TypeError("Given input must be a list or tuple")
+    d_list = [va.load(item) for item in filename_list]
+    
+    d = {}
+    d_keys = RQ_list if RQ_list else list(d_list[0])
+    for key in d_keys:
+        if not key.startswith('ref_'):
+            if isinstance(d_list[0][key], va.varray):
+                d[key] = va.row_concat([item[key] for item in d_list])
+            elif isinstance(d_list[0][key], np.ndarray):
+                d[key] = np.concatenate([item[key] for item in d_list], axis=-1)
+        else:
+            d[key] = d_list[0][key] # channel-position map, area fractions, etc.
+    return d
 
 
