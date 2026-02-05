@@ -55,7 +55,7 @@ def process_portion(filename_and_path, start_event, num_events, c):
     fname_int, fname_iter = get_filename_ints_from_fullpath(filename_and_path)
     
     # load data
-    d, _, _ = ldax.Read_DDC40_fName(filename_and_path, start_event=start_event, num_events=num_events)
+    d, d_info, _ = ldax.Read_DDC40_fName(filename_and_path, start_event=start_event, num_events=num_events)
     
     # determine number of events; should be the same as num_events, but this will see what it really is
     num_events_loaded = d.shape[0]
@@ -245,6 +245,8 @@ def process_portion(filename_and_path, start_event, num_events, c):
     d_out['e_event_id'] = event_id
     d_out['e_file_tags'] = file_tags
     d_out['e_file_iters'] = file_iters
+    d_out['e_timestamps'] = d_info['trig_timestamp']
+    d_out['e_trig_sequence'] = d_info['trig_seq_num']
     d_out['p_bnds'] = p_bnds
     d_out['p_area'] = p_area
     d_out['p_area_ch'] = p_area_ch
