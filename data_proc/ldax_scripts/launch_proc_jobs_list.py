@@ -25,7 +25,7 @@ def parse_some_args():
         default=default_rq_path, help="The path in which to search for and save RQ data")
     parser.add_argument('-f', action='store', dest='file_list',
         help="List of files to be processed")
-    parser.add_argument('--conf', action='store', dest='conf_file', 
+    parser.add_argument('--conf', action='store', dest='conf_file',
         default='proc_settings_v001.yaml', help="Settings file for processing jobs")
     args = parser.parse_args()
     return args
