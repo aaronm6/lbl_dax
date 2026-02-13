@@ -256,6 +256,8 @@ void ngdd_filt_mask_row(PyObject *args) {
 			k += k_p;
 		}
 	}
+	Py_DECREF(nd_s);
+	Py_DECREF(nd_b);
 }
 
 void merge_islands_row(PyObject *args) {
