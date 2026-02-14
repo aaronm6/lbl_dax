@@ -297,6 +297,8 @@ void merge_islands_row(PyObject *args) {
 		k_counter = 0;
 		last = *b_el;
 	}
+	Py_DECREF(nd_b);
+	Py_DECREF(nd_v);
 }
 
 void exp_filt_row(PyObject *args) {
