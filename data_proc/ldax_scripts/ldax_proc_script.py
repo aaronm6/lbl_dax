@@ -378,8 +378,11 @@ def main():
     
     
     # save RQs to file
+    confRQdir = os.path.splitext(conf_file)[0]
+    if not os.path.isdir(os.path.join(c.rq_path,confRQdir)):
+        os.makedirs(os.path.join(c.rq_path,confRQdir))
     if args.out_file == 'default':
-        va.save(f'{c.rq_path}/{rqName}', **d)
+        va.save(os.path.join(c.rq_path, confRQdir, rqName), **d)
     else:
         va.save(rqName, **d)
 

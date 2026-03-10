@@ -87,9 +87,13 @@ def filter_lowpass_RC(d, c):
     Apply an n-pole RC filter to the data on a per-ch-per-event basis, specifying
     the overall filter bandwidth and the number of poles.
     """
-    d_pre = d[...,(c.filter_prepad-1)::-1]
-    d_filt = ldax.lowpass_RC(np.concatenate((d_pre,d), axis=-1), c.filter_RC_bw, n=c.filter_RC_poles)
-    return d_filt[..., c.filter_prepad:]
+    if hasattr(c, 'filter_prepad'):
+        d_pre = d[...,(c.filter_prepad-1)::-1]
+        d_filt = ldax.lowpass_RC(np.concatenate((d_pre,d), axis=-1), c.filter_RC_bw, n=c.filter_RC_poles)
+        d_filt = d_filt[..., c.filter_prepad:]
+    else:
+        d_filt = ldax.lowpass_RC(d, c.filter_RC_bw, n=c.filter_RC_poles)
+    return d_filt
 
 def pod_bool_per_ch(d_filt, c):
     """
