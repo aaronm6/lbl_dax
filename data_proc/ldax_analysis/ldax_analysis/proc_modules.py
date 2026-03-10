@@ -1,9 +1,11 @@
 import numpy as np
+from scipy.special import erf
 import ldax_processing as ldax
 import varray as va
 
 __all__ = [
     'baseline_rolling',
+    'baseline_roll_temper',
     'baseline_avg_1st_n',
     'filter_lowpass_RC',
     'pod_bool_per_ch',
@@ -28,8 +30,49 @@ def baseline_rolling(d, c):
     ldax.merge_islands(d_find_mask, width=c.chfind_merge_islands_width)
     
     # calculate per-channel-per-event baseline curves from a running average, masked of pulses
-    d_bs_est = ldax.baseline_update(d, d_find_mask, alpha=c.bs_est_alpha)
+    d_bs_est = ldax.baseline_update(d, d_find_mask, alpha=c.bs_est_alpha, n_start=c.bs_nstart)
     return d_bs_est
+
+def temper_baseline(x, x_max=np.inf, x_min=-np.inf):
+    """
+    This takes an estimated baseline value and replaces it essentially with erf(value),
+    with some scaling.  The actual function that replaces the value is
+    
+    y -> A * erf(y*sqrt(pi)/2/A)
+    
+    This function has the property that it has a slope of unity near y=0, but it smoothly
+    enforces a min/max value of +/- A.  Roughly speaking, y -> ~y when y<A/2.
+    
+    A further detail here is that one can choose a different value of A for y>0 and
+    y<0.
+    """
+    x_new = np.empty_like(x)
+    sqpi = np.sqrt(np.pi)
+    cut_pos = x>= 0.
+    cut_neg = ~cut_pos
+    if x_max == np.inf:
+        x_new[cut_pos] = x[cut_pos]
+    else:
+        x_new[cut_pos] = x_max * erf(sqpi*x[cut_pos]/2/x_max)
+    if x_min == -np.inf:
+        x_new[cut_neg] = x[cut_neg]
+    else:
+        x_new[cut_neg]  = x_min * erf(sqpi*x[cut_neg]/2/x_min)
+    return x_new
+
+def baseline_roll_temper(d, c):
+    """
+    Extension of baseline_rolling; this also handles post-pulses differently (it resets
+    the average), and it does a tempering step, which means it doesn't allow the baseline
+    estimate to get too crazy.
+    """
+    # First do a preliminary subtraction based on the first n samples of the waveform
+    d_bs_n = d[..., :c.bs_nstart].mean(axis=-1)
+    d = d - d_bs_n[..., np.newaxis]
+    d_bs_roll = baseline_rolling(d, c)
+    d_bs_roll = temper_baseline(d_bs_roll, x_min=c.bs_temper_min, x_max=c.bs_temper_max)
+    d_bs_roll = d_bs_roll + d_bs_n[..., np.newaxis]
+    return d_bs_roll
 
 def baseline_avg_1st_n(d, c):
     """
@@ -44,7 +87,9 @@ def filter_lowpass_RC(d, c):
     Apply an n-pole RC filter to the data on a per-ch-per-event basis, specifying
     the overall filter bandwidth and the number of poles.
     """
-    return ldax.lowpass_RC(d, c.filter_RC_bw, n=c.filter_RC_poles)
+    d_pre = d[...,(c.filter_prepad-1)::-1]
+    d_filt = ldax.lowpass_RC(np.concatenate((d_pre,d), axis=-1), c.filter_RC_bw, n=c.filter_RC_poles)
+    return d_filt[..., c.filter_prepad:]
 
 def pod_bool_per_ch(d_filt, c):
     """
