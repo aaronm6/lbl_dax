@@ -1376,7 +1376,6 @@ static PyObject *meth_pod_boolean(PyObject *self, PyObject *args, PyObject *kwar
 }
 
 static PyObject *meth_baseline_update(PyObject *self, PyObject *args, PyObject *kwargs) {
-	// should be doing this with a row-by-row, but not set up to do that right now
 	static char *keywords[] = {"","","alpha","n_start","axis",NULL};
 	PyObject *obj_i, *obj_b;
 	long axis=-1;
@@ -1386,10 +1385,8 @@ static PyObject *meth_baseline_update(PyObject *self, PyObject *args, PyObject *
 		&obj_i, &obj_b, &alpha, &n_start, &axis)) {
 		return NULL;
 	}
-	PyArrayObject *nd_i = (PyArrayObject *)PyArray_FROM_OTF(
-		obj_i, NPY_FLOAT64, 0);
-	PyArrayObject *nd_b = (PyArrayObject *)PyArray_FROM_OTF(
-		obj_b, NPY_BOOL, 0);
+	PyArrayObject *nd_i = (PyArrayObject *)PyArray_FROM_OTF(obj_i, NPY_FLOAT64, 0);
+	PyArrayObject *nd_b = (PyArrayObject *)PyArray_FROM_OTF(obj_b, NPY_BOOL, 0);
 	int ndim_i = PyArray_NDIM(nd_i);
 	int ndim_b = PyArray_NDIM(nd_b);
 	if (ndim_i != ndim_b) {
@@ -1405,23 +1402,40 @@ static PyObject *meth_baseline_update(PyObject *self, PyObject *args, PyObject *
 	}
 	npy_float64 *i_el, *o_el;
 	npy_bool *b_el;
+	npy_bool last_bool = NPY_TRUE;
 	npy_float64 last_bs;
 	npy_float64 init_sum=0.;
+	npy_intp i_ave_end;
 	//last_bs = *i_el;
 	//print_dims(npy_intp *inds, npy_intp *dims, int ndim) {
 	int ii=0;
 	do {
-		ii++;
-		init_sum=0.;
+		++ii;
+		init_sum = 0.;
 		for (npy_intp ind=0; ind<n_start; ind++) {
-			//inds[ndim_i-1] = ind;
 			inds[raxis] = ind;
 			i_el = (npy_float64 *)PyArray_GetPtr(nd_i, inds);
 			init_sum += *i_el;
 		}
 		last_bs = init_sum / ((npy_float64)n_start);
 		for (npy_intp ind=0; ind<dims[ndim_i-1]; ind++) {
-			//inds[ndim_i-1] = ind;
+			inds[raxis] = ind;
+			b_el = (npy_bool *)PyArray_GetPtr(nd_b, inds);
+			if ((last_bool == NPY_TRUE)&&(*b_el==NPY_FALSE)) {
+				init_sum = 0.;
+				i_ave_end = intp_min(ind+n_start,dims[ndim_i-1]);
+				for (npy_intp ind_ave=0; ind_ave<i_ave_end-ind; ind_ave++) {
+					inds[raxis] = ind_ave+ind;
+					i_el = (npy_float64 *)PyArray_GetPtr(nd_i, inds);
+					b_el = (npy_bool *)PyArray_GetPtr(nd_b, inds);
+					if (*b_el == NPY_FALSE) {
+						init_sum += *i_el;
+					} else {
+						init_sum += init_sum / ((npy_float)ind_ave);
+					}
+				}
+				last_bs = init_sum / ((npy_float64)n_start);
+			}
 			inds[raxis] = ind;
 			i_el = (npy_float64 *)PyArray_GetPtr(nd_i, inds);
 			b_el = (npy_bool *)PyArray_GetPtr(nd_b, inds);
@@ -1432,11 +1446,11 @@ static PyObject *meth_baseline_update(PyObject *self, PyObject *args, PyObject *
 			} else {
 				*o_el = last_bs;
 			}
+			last_bool = *b_el;
+			inds[raxis] = 0;
 		}
-		//inds[ndim_i-1] = 0;
-		inds[raxis] = 0;
-	} while (inc_inds(inds, dims, ndim_i, raxis)&&(ii<5000000));
-	//} while (inc_inds(inds, dims, ndim_i));
+	} while (inc_inds(inds, dims, ndim_i, raxis) && (ii<5000000));
+	
 	if (ii>=5000000) {
 		printf("Warning: maximum iterations exceeded in baseline calculation\n");
 		fflush(stdout);
