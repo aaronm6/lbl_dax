@@ -8,8 +8,10 @@ sipm_spe_areas: 'SiPMgains_2026-05-08-1053.txt'
 baseline_estimator: 'baseline_rolling'
 find_ngdd_width: 0.15
 find_mask_thresh: 12.0
-find_mask_pre_samples_add: 30
-find_mask_post_samples_add: 30
+#find_mask_pre_samples_add: 30
+find_mask_pre_samples_add: 60
+#find_mask_post_samples_add: 30
+find_mask_post_samples_add: 250
 chfind_merge_islands_width: 50
 bs_nstart: 100
 bs_est_alpha: 0.03
