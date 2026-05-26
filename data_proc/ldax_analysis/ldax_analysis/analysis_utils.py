@@ -7,7 +7,7 @@ import matplotlib.pyplot as plt
 from matplotlib.collections import PatchCollection
 from matplotlib.patches import Rectangle, Circle
 
-__all__ = ['plot_top_pattern']
+__all__ = ['plot_top_pattern','concat_RQ_files']
 
 dim_2x2 = 7.85 # mm
 cn_2x2 = np.array([
