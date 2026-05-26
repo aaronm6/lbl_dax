@@ -29,7 +29,7 @@ ch_podbool_prepodsamples: 20
 ch_podbool_postpodsamples: 30
 
 pod_bool_sum_func: 'pod_bool_sum_ch'
-sm_podbool_thresh: 6.
+sm_podbool_thresh: 5.5
 sm_podbool_prepodsamples: 20
 sm_podbool_postpodsamples: 30
 sm_merge_islands_width: 10
