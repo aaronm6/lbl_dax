@@ -220,7 +220,14 @@ def process_portion(filename_and_path, start_event, num_events, c):
                 sipm2x2_centers_mm[k4,:] + sipm_i_rel_center_positions_mm[k1,:]
     # here with raw pulse areas in units of phe
     s2_top = s2_phe_ch[:,:16,:].sum(axis=1)
-    s2_top[s2_top<=0.] = 1.
+    #s2_top[s2_top<=0.] = 1.
+    s2_top[s2_top<=0.] = .1
+    s2_bot = s2_phe_ch[:,16:32,:].sum(axis=1)
+    s2_bot[s2_bot<=0.] = .1
+    s1_top = s1_phe_ch[:,:16,:].sum(axis=1)
+    s1_top[s1_top<=0.] = .1
+    s1_bot = s1_phe_ch[:,16:32,:].sum(axis=1)
+    s1_bot[s1_bot<=0.] = .1
     va_ch_pos_x = va.varray(
         darray=np.tile(ch_pos[:,0][:,np.newaxis],(1,int(s2_phe.sarray.sum()))), 
         sarray=s2_phe.sarray)
@@ -229,11 +236,30 @@ def process_portion(filename_and_path, start_event, num_events, c):
         sarray=s2_phe.sarray)
     s2_x_raw = (s2_phe_ch[:,:16,...]*va_ch_pos_x).sum(axis=1) / s2_top
     s2_y_raw = (s2_phe_ch[:,:16,...]*va_ch_pos_y).sum(axis=1) / s2_top
+    s2_x_bot = (s2_phe_ch[:,16:32,...]*va_ch_pos_x).sum(axis=1) / s2_bot
+    s2_y_bot = (s2_phe_ch[:,16:32,...]*va_ch_pos_y).sum(axis=1) / s2_bot
+    
+    s1_x_top = (s1_phe_ch[:,:16,...]*va_ch_pos_x).sum(axis=1) / s1_top
+    s1_y_top = (s1_phe_ch[:,:16,...]*va_ch_pos_y).sum(axis=1) / s1_top
+    s1_x_bot = (s1_phe_ch[:,16:32,...]*va_ch_pos_x).sum(axis=1) / s1_bot
+    s1_y_bot = (s1_phe_ch[:,16:32,...]*va_ch_pos_y).sum(axis=1) / s1_bot
     
     # Calculate variance of x and y, and covariance of x,y
     s2_var_x_raw = (s2_phe_ch[:,:16,...]*(va_ch_pos_x**2)).sum(axis=1)/s2_top - (s2_x_raw**2)
     s2_var_y_raw = (s2_phe_ch[:,:16,...]*(va_ch_pos_y**2)).sum(axis=1)/s2_top - (s2_y_raw**2)
     s2_var_xy_raw = (s2_phe_ch[:,:16,...]*va_ch_pos_x*va_ch_pos_y).sum(axis=1)/s2_top - s2_x_raw * s2_y_raw
+    
+    s2_var_x_bot = (s2_phe_ch[:,16:32,...]*(va_ch_pos_x**2)).sum(axis=1)/s2_bot - (s2_x_bot**2)
+    s2_var_y_bot = (s2_phe_ch[:,16:32,...]*(va_ch_pos_y**2)).sum(axis=1)/s2_bot - (s2_y_bot**2)
+    s2_var_xy_bot = (s2_phe_ch[:,16:32,...]*va_ch_pos_x*va_ch_pos_y).sum(axis=1)/s2_bot - s2_x_bot*s2_y_bot
+    
+    s1_var_x_top = (s1_phe_ch[:,:16,...]*(va_ch_pos_x**2)).sum(axis=1)/s1_top - (s1_x_top**2)
+    s1_var_y_top = (s1_phe_ch[:,:16,...]*(va_ch_pos_y**2)).sum(axis=1)/s1_top - (s1_y_top**2)
+    s1_var_xy_top = (s1_phe_ch[:,:16,...]*va_ch_pos_x*va_ch_pos_y).sum(axis=1)/s1_top - s2_x_top*s2_y_top
+
+    s1_var_x_bot = (s1_phe_ch[:,16:32,...]*(va_ch_pos_x**2)).sum(axis=1)/s1_bot - (s1_x_bot**2)
+    s1_var_y_bot = (s1_phe_ch[:,16:32,...]*(va_ch_pos_y**2)).sum(axis=1)/s1_bot - (s1_y_bot**2)
+    s1_var_xy_bot = (s1_phe_ch[:,16:32,...]*va_ch_pos_x*va_ch_pos_y).sum(axis=1)/s1_bot - s2_x_bot*s2_y_bot
     
     # collect RQs into dictionary
     # e_ means an event-level quantity
@@ -286,6 +312,25 @@ def process_portion(filename_and_path, start_event, num_events, c):
     d_out['ref_ch_pos'] = ch_pos
     d_out['s2_x_raw'] = s2_x_raw
     d_out['s2_y_raw'] = s2_y_raw
+    d_out['s2_x_bot'] = s2_x_bot
+    d_out['s2_y_bot'] = s2_y_bot
+    d_out['s1_x_top'] = s1_x_top
+    d_out['s1_y_top'] = s1_y_top
+    d_out['s1_x_bot'] = s1_x_top
+    d_out['s1_y_bot'] = s1_y_top
+    d_out['s2_var_x_raw'] = s2_var_x_raw
+    d_out['s2_var_y_raw'] = s2_var_y_raw
+    d_out['s2_var_xy_raw'] = s2_var_xy_raw
+    d_out['s2_var_x_bot'] = s2_var_x_bot
+    d_out['s2_var_y_bot'] = s2_var_y_bot
+    d_out['s2_var_xy_bot'] = s2_var_xy_bot
+    d_out['s1_var_x_top'] = s2_var_x_top
+    d_out['s1_var_y_top'] = s2_var_y_top
+    d_out['s1_var_xy_top'] = s2_var_xy_top
+    d_out['s1_var_x_bot'] = s2_var_x_bot
+    d_out['s1_var_y_bot'] = s2_var_y_bot
+    d_out['s1_var_xy_bot'] = s2_var_xy_bot
+    
     # for convenience, calculate lateral coordinates in r, theta
     d_out['s2_r_raw'] = np.sqrt((s2_x_raw**2) + (s2_y_raw**2))
     d_out['s2_theta_raw'] = np.arctan2(s2_y_raw, s2_x_raw)
