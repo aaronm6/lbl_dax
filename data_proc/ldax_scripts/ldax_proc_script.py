@@ -324,12 +324,12 @@ def process_portion(filename_and_path, start_event, num_events, c):
     d_out['s2_var_x_bot'] = s2_var_x_bot
     d_out['s2_var_y_bot'] = s2_var_y_bot
     d_out['s2_var_xy_bot'] = s2_var_xy_bot
-    d_out['s1_var_x_top'] = s2_var_x_top
-    d_out['s1_var_y_top'] = s2_var_y_top
-    d_out['s1_var_xy_top'] = s2_var_xy_top
-    d_out['s1_var_x_bot'] = s2_var_x_bot
-    d_out['s1_var_y_bot'] = s2_var_y_bot
-    d_out['s1_var_xy_bot'] = s2_var_xy_bot
+    d_out['s1_var_x_top'] = s1_var_x_top
+    d_out['s1_var_y_top'] = s1_var_y_top
+    d_out['s1_var_xy_top'] = s1_var_xy_top
+    d_out['s1_var_x_bot'] = s1_var_x_bot
+    d_out['s1_var_y_bot'] = s1_var_y_bot
+    d_out['s1_var_xy_bot'] = s1_var_xy_bot
     
     # for convenience, calculate lateral coordinates in r, theta
     d_out['s2_r_raw'] = np.sqrt((s2_x_raw**2) + (s2_y_raw**2))
