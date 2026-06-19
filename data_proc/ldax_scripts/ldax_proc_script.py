@@ -220,14 +220,13 @@ def process_portion(filename_and_path, start_event, num_events, c):
                 sipm2x2_centers_mm[k4,:] + sipm_i_rel_center_positions_mm[k1,:]
     # here with raw pulse areas in units of phe
     s2_top = s2_phe_ch[:,:16,:].sum(axis=1)
-    #s2_top[s2_top<=0.] = 1.
-    s2_top[s2_top<=0.] = .1
+    s2_top[s2_top<=0.] = 1.
     s2_bot = s2_phe_ch[:,16:32,:].sum(axis=1)
-    s2_bot[s2_bot<=0.] = .1
+    s2_bot[s2_bot<=0.] = 1.
     s1_top = s1_phe_ch[:,:16,:].sum(axis=1)
-    s1_top[s1_top<=0.] = .1
+    s1_top[s1_top<=0.] = 1.
     s1_bot = s1_phe_ch[:,16:32,:].sum(axis=1)
-    s1_bot[s1_bot<=0.] = .1
+    s1_bot[s1_bot<=0.] = 1.
     va_ch_pos_x = va.varray(
         darray=np.tile(ch_pos[:,0][:,np.newaxis],(1,int(s2_phe.sarray.sum()))), 
         sarray=s2_phe.sarray)
