@@ -1,0 +1,77 @@
+config_version: 'amp50Vv004'
+
+raw_data_path: '/mnt/drive1/TPC_data'
+rq_path: '/mnt/drive2/TPC_RQs'
+
+sipm_spe_areas: 'SiPMgains_2026-05-08-1053.txt'
+
+baseline_estimator: 'baseline_rolling'
+find_ngdd_width: 0.15
+find_mask_thresh: 12.0
+#find_mask_pre_samples_add: 30
+find_mask_pre_samples_add: 60
+#find_mask_post_samples_add: 30
+find_mask_post_samples_add: 250
+chfind_merge_islands_width: 50
+bs_nstart: 100
+bs_est_alpha: 0.03
+bs_temper_min: -1000.0
+bs_temper_max: 5.0
+
+filter_function: 'filter_lowpass_RC'
+filter_RC_bw: 0.1
+filter_RC_poles: 10
+filter_prepad: 5
+
+pod_bool_ch_func: 'pod_bool_per_ch'
+ch_podbool_thresh: 5.0
+ch_podbool_prepodsamples: 20
+ch_podbool_postpodsamples: 30
+
+pod_bool_sum_func: 'pod_bool_sum_ch'
+sm_podbool_thresh: 5.5
+sm_podbool_prepodsamples: 20
+sm_podbool_postpodsamples: 30
+sm_merge_islands_width: 10
+
+p_bnds_func: 'calc_p_bnds'
+split_amp_frac: 0.04
+#split_amp_max: 80.
+split_amp_max: 1000.
+split_quiet_samples: 60
+split_buffer_samples: 10
+split_iterations: 4
+
+p_area_fracs:
+- 0.05
+- 0.1
+- 0.25
+- 0.5
+- 0.75
+- 0.9
+- 0.95
+
+s1_9010_min: 13.
+s1_9010_max: 23.
+s1_7525_max_m: 0.5
+s1_7525_max_b: 2.0
+s1_7525_min_m: 0.37
+s1_7525_min_b: 0.5
+s1_nfold: 2
+
+s2_9010_min: 35.
+s2_9010_max: 120.
+s2_7525_max_m: 0.75
+s2_7525_max_b: -7.
+s2_7525_min_p: 0.55
+s2_7525_min_a: 5.
+s2_7525_min_b: -25.
+
+s1_prom_max_frac: 0.1
+s2_prom_max_frac: 0.05
+
+
+
+
+
+
