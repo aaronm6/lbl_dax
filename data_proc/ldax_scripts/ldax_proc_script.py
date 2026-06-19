@@ -262,11 +262,11 @@ def process_portion(filename_and_path, start_event, num_events, c):
     
     s1_var_x_top = (s1_phe_ch[:,:16,...]*(va_ch_pos_x_s1**2)).sum(axis=1)/s1_top - (s1_x_top**2)
     s1_var_y_top = (s1_phe_ch[:,:16,...]*(va_ch_pos_y_s1**2)).sum(axis=1)/s1_top - (s1_y_top**2)
-    s1_var_xy_top = (s1_phe_ch[:,:16,...]*va_ch_pos_x_s1*va_ch_pos_y_s1).sum(axis=1)/s1_top - s2_x_top*s2_y_top
-
+    s1_var_xy_top = (s1_phe_ch[:,:16,...]*va_ch_pos_x_s1*va_ch_pos_y_s1).sum(axis=1)/s1_top - s1_x_top*s1_y_top
+    
     s1_var_x_bot = (s1_phe_ch[:,16:32,...]*(va_ch_pos_x_s1**2)).sum(axis=1)/s1_bot - (s1_x_bot**2)
     s1_var_y_bot = (s1_phe_ch[:,16:32,...]*(va_ch_pos_y_s1**2)).sum(axis=1)/s1_bot - (s1_y_bot**2)
-    s1_var_xy_bot = (s1_phe_ch[:,16:32,...]*va_ch_pos_x_s1*va_ch_pos_y_s1).sum(axis=1)/s1_bot - s2_x_bot*s2_y_bot
+    s1_var_xy_bot = (s1_phe_ch[:,16:32,...]*va_ch_pos_x_s1*va_ch_pos_y_s1).sum(axis=1)/s1_bot - s1_x_bot*s1_y_bot
     
     # collect RQs into dictionary
     # e_ means an event-level quantity
