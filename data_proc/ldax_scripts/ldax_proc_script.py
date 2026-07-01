@@ -120,6 +120,7 @@ def process_portion(filename_and_path, start_event, num_events, c):
     del pA_list
     
     # calculate pulse widths
+    p_width_955  = p_aft[:,-1,:] - p_aft[:,0,:]
     p_width_9010 = p_aft[:,-2,:] - p_aft[:,1,:]
     p_width_7525 = p_aft[:,-3,:] - p_aft[:,2,:]
     
@@ -129,14 +130,10 @@ def process_portion(filename_and_path, start_event, num_events, c):
     # perform first-pass pulse classification
     # pulse identity: 0 (other); 1 (s1); 2 (s2); 3 (SPE)
     p_class = va.zeros(p_area.sarray, dtype=np.uint8)
-    cut_S1 = (p_width_9010>c.s1_9010_min) & (p_width_9010<c.s1_9010_max) & \
-        (p_width_7525 < (p_width_9010*c.s1_7525_max_m+c.s1_7525_max_b)) & \
-        (p_width_7525 > (p_width_9010*c.s1_7525_min_m+c.s1_7525_min_b))
+    cut_S1 = (p_width_955>c.s1_955_max) & (p_width_7525>c.s1_7525_min) & (p_width_7525<c.s1_7525_max)
     p_class[cut_S1 & (p_nfold>=c.s1_nfold)] = 1
     p_class[cut_S1 & (p_nfold<c.s1_nfold)] = 3
-    cut_S2 = (p_width_9010>c.s2_9010_min) & (p_width_9010<c.s2_9010_max) & \
-        (p_width_7525 < (p_width_9010*c.s2_7525_max_m+c.s2_7525_max_b)) & \
-        (p_width_7525 > ((p_width_9010**c.s2_7525_min_p)*c.s2_7525_min_a+c.s2_7525_min_b))
+    cut_S2 = (p_width_955>c.s2_955_min) & (p_width_955<c.s2_955_max)
     p_class[cut_S2] = 2
     
     # Move now from pulse-level quantities to identifying prominent S1s and S2s
@@ -417,6 +414,7 @@ def main():
     #    d['d_'+item] = d_info[item]
     
     # add info regarding config file
+    d['conf_file'] = conf_file
     d['config_version'] = c.config_version
     d['sipm_spe_areas'] = c.sipm_spe_areas
     if hasattr(ldax, 'version'):
