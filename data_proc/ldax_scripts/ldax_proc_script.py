@@ -130,7 +130,7 @@ def process_portion(filename_and_path, start_event, num_events, c):
     # perform first-pass pulse classification
     # pulse identity: 0 (other); 1 (s1); 2 (s2); 3 (SPE)
     p_class = va.zeros(p_area.sarray, dtype=np.uint8)
-    cut_S1 = (p_width_955>c.s1_955_max) & (p_width_7525>c.s1_7525_min) & (p_width_7525<c.s1_7525_max)
+    cut_S1 = (p_width_955<c.s1_955_max) & (p_width_7525>c.s1_7525_min) & (p_width_7525<c.s1_7525_max)
     p_class[cut_S1 & (p_nfold>=c.s1_nfold)] = 1
     p_class[cut_S1 & (p_nfold<c.s1_nfold)] = 3
     cut_S2 = (p_width_955>c.s2_955_min) & (p_width_955<c.s2_955_max)
