@@ -91,7 +91,7 @@ def main():
                     'python',
                     'ldax_proc_script.py',
                     '-f',
-                    f'{file_proc}.bin.gz',
+                    f'{file_proc}',
                     '-c',
                     args.conf_file]
                 #p = subprocess.Popen(popen_list)
