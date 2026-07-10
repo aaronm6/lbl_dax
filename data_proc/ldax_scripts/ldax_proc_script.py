@@ -7,6 +7,10 @@ import tracemalloc
 import argparse
 import yaml
 import re
+import gzip
+from ldax_processing.DDC40_BinReader import is_gzipped
+import shutil
+import tempfile
 
 def parse_some_args():
     parser = argparse.ArgumentParser(description="Process LDAX DDC40 data")
@@ -47,7 +51,7 @@ def get_filename_ints_from_fullpath(filename_and_path):
         iter_int = np.int16(iter_search.groups()[0])
     return tag_int, iter_int
 
-def process_portion(filename_and_path, start_event, num_events, c):
+def process_portion(f_handle, filename_and_path, start_event, num_events, c):
     """
     c is a dict_attr object with loaded settings from the conf file
     """
@@ -353,6 +357,26 @@ def process_portion(filename_and_path, start_event, num_events, c):
     
     return d_out
 
+def process_file(f_handle, fName, c):
+    # Read file header and get data-info
+    #_, d_info, header = ldax.Read_DDC40_fName(f'{c.raw_data_path}/{fName}', num_events=2)
+    _, d_info, header = ldax.Read_DDC40_fHandle(f_handle, num_events=2)
+    num_events = header['num_events_in_file']
+    
+    num_events_per_iteration = min(1000, num_events)
+    d_list = []
+    d_list.append(process_portion(f_handle,f'{c.raw_data_path}/{fName}', 0, num_events_per_iteration, c))
+    i_end = num_events_per_iteration
+    while (i_end < num_events):
+        num_events_load = min(i_end+num_events_per_iteration, num_events) - i_end
+        #print(f"...load events {i_end} through {i_end+num_events_load}")
+        print(f"PROGRESS: {100*i_end/num_events}% - {fName}", flush=True)
+        #d_new = process_portion(f'{c.raw_data_path}/{fName}', i_end, num_events_load, c)
+        d_list.append(process_portion(f_handle,f'{c.raw_data_path}/{fName}', i_end, num_events_load, c))
+        i_end += num_events_per_iteration
+    return d_list
+
+
 def main():
     args = parse_some_args()
     fName = args.raw_file
@@ -373,6 +397,18 @@ def main():
     with open(os.path.join(conf_dir, conf_file),'r') as ff:
         c = dict_attr(yaml.safe_load(ff))
     
+    d_list = []
+    if is_gzipped(fName):
+        with tempfile.TemporaryFile() as tmp_file:
+            with gzip.open(fName, 'rb') as f_in:
+                shutil.copyfileobj(f_in, tmp_file, length=1024*1024)
+            tmp_file.flush()
+            tmp_file.seek(0)
+            d_list = process_file(tmp_file, fName, c)
+    else:
+        with open(fName, 'rb') as f_in:
+            d_list = process_file(f_in, fName, c)
+    '''
     # Read file header and get data-info
     _, d_info, header = ldax.Read_DDC40_fName(f'{c.raw_data_path}/{fName}', num_events=2)
     num_events = header['num_events_in_file']
@@ -393,6 +429,7 @@ def main():
                 d[key] = va.row_concat([d[key], d_new[key]])
         """
         i_end += num_events_per_iteration
+    '''
     
     d = {}
     d_keys = list(d_list[0])
