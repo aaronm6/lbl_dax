@@ -400,15 +400,15 @@ def main():
     
     d_list = []
     header = {}
-    if is_gzipped(fName):
+    if is_gzipped(f'{c.raw_data_path}/{fName}'):
         with tempfile.TemporaryFile() as tmp_file:
-            with gzip.open(fName, 'rb') as f_in:
+            with gzip.open(f'{c.raw_data_path}/{fName}', 'rb') as f_in:
                 shutil.copyfileobj(f_in, tmp_file, length=1024*1024)
             tmp_file.flush()
             tmp_file.seek(0)
             d_list, header = process_file(tmp_file, fName, c)
     else:
-        with open(fName, 'rb') as f_in:
+        with open(f'{c.raw_data_path}/{fName}', 'rb') as f_in:
             d_list, header = process_file(f_in, fName, c)
     '''
     # Read file header and get data-info
