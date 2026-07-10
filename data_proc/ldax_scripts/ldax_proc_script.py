@@ -59,7 +59,8 @@ def process_portion(f_handle, filename_and_path, start_event, num_events, c):
     fname_int, fname_iter = get_filename_ints_from_fullpath(filename_and_path)
     
     # load data
-    d, d_info, _ = ldax.Read_DDC40_fName(filename_and_path, start_event=start_event, num_events=num_events)
+    #d, d_info, _ = ldax.Read_DDC40_fName(filename_and_path, start_event=start_event, num_events=num_events)
+    d, d_info, _ = ldax.Read_DDC40_fHandle(f_handle, start_event=start_event, num_events=num_events)
     
     # determine number of events; should be the same as num_events, but this will see what it really is
     num_events_loaded = d.shape[0]
