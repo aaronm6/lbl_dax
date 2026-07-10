@@ -375,7 +375,7 @@ def process_file(f_handle, fName, c):
         #d_new = process_portion(f'{c.raw_data_path}/{fName}', i_end, num_events_load, c)
         d_list.append(process_portion(f_handle,f'{c.raw_data_path}/{fName}', i_end, num_events_load, c))
         i_end += num_events_per_iteration
-    return d_list
+    return d_list, header
 
 
 def main():
@@ -399,16 +399,17 @@ def main():
         c = dict_attr(yaml.safe_load(ff))
     
     d_list = []
+    header = {}
     if is_gzipped(fName):
         with tempfile.TemporaryFile() as tmp_file:
             with gzip.open(fName, 'rb') as f_in:
                 shutil.copyfileobj(f_in, tmp_file, length=1024*1024)
             tmp_file.flush()
             tmp_file.seek(0)
-            d_list = process_file(tmp_file, fName, c)
+            d_list, header = process_file(tmp_file, fName, c)
     else:
         with open(fName, 'rb') as f_in:
-            d_list = process_file(f_in, fName, c)
+            d_list, header = process_file(f_in, fName, c)
     '''
     # Read file header and get data-info
     _, d_info, header = ldax.Read_DDC40_fName(f'{c.raw_data_path}/{fName}', num_events=2)
