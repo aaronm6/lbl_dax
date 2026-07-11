@@ -1,4 +1,4 @@
-config_version: 'amp50Vv004b'
+config_version: 'amp50Vv004'
 
 raw_data_path: '/mnt/drive1/TPC_data'
 rq_path: '/mnt/drive2/TPC_RQs'
