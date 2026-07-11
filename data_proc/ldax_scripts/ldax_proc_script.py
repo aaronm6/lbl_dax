@@ -363,7 +363,7 @@ def process_file(f_handle, fName, c):
     #_, d_info, header = ldax.Read_DDC40_fName(f'{c.raw_data_path}/{fName}', num_events=2)
     _, d_info, header = ldax.Read_DDC40_fHandle(f_handle, num_events=2)
     num_events = header['num_events_in_file']
-    header.update({'filename':fName})
+    header.update({'filename':f'{c.raw_data_path}/{fName}'})
     
     num_events_per_iteration = min(1000, num_events)
     d_list = []
