@@ -71,7 +71,8 @@ def main():
     with open(args.file_list, 'r') as file:
         for line in file:
             files_to_process.append(line.strip())
-
+    
+    files_to_process = files_to_process[::-1]
     files_in_process = []
     files_processed = []
     
