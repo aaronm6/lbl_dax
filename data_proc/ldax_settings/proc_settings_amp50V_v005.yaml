@@ -48,13 +48,13 @@ p_area_fracs:
 - 0.9
 - 0.95
 
-s1_955_max: 60.
+s1_955_max: 50.
 s1_7525_min: 7.
 s1_7525_max: 12.
 s1_nfold: 3
 
-s2_955_min: 80.
-s2_955_max: 220.
+s2_955_min: 60.
+s2_955_max: 130.
 
 s1_prom_max_frac: 0.1
 s2_prom_max_frac: 0.05
