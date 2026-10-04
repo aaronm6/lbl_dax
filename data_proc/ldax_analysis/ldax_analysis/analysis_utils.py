@@ -77,4 +77,8 @@ def concat_RQ_files(filename_list, RQ_list=None):
             d[key] = d_list[0][key] # channel-position map, area fractions, etc.
     return d
 
+def concat_RQs_w_cuts(filename_list, cut_func, RQ_list=None):
+    """
+    This is very much like concat_RQ_files
+    """
 
