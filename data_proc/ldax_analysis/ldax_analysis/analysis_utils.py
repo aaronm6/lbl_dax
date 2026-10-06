@@ -87,7 +87,7 @@ def concat_RQs_w_cuts(filename_list, cut_func, RQ_list=None):
     if not isinstance(filename_list, (list, tuple)):
         raise TypeError("filename_list must be a list or tuple")
         if any([not item.startswith('ss_') for item in RQ_list]):
-        print("Warning: RQ_list can only contain RQs that start with 'ss_'; ignoring RQs that do not match this")
+            print("Warning: RQ_list must contain RQs that start with 'ss_'; ignoring RQs that do not match this")
     RQ_list = [item for item in RQ_list if item.startswith('ss_')]
     d_list = []
     for item in filename_list:
