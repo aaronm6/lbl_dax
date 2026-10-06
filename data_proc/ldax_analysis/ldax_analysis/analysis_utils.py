@@ -80,5 +80,36 @@ def concat_RQ_files(filename_list, RQ_list=None):
 def concat_RQs_w_cuts(filename_list, cut_func, RQ_list=None):
     """
     This is very much like concat_RQ_files
+    cut_func must accept a full RQ structure as a dict and spit out a boolean numpy
+    array that can be applied to the `ss_' RQs on an event-by-event basis
+    only RQs that start with `ss_' will be saved (all of them if RQ_list is None)
     """
+    if not isinstance(filename_list, (list, tuple)):
+        raise TypeError("filename_list must be a list or tuple")
+        if any([not item.startswith('ss_') for item in RQ_list]):
+        print("Warning: RQ_list can only contain RQs that start with 'ss_'; ignoring RQs that do not match this")
+    RQ_list = [item for item in RQ_list if item.startswith('ss_')]
+    d_list = []
+    for item in filename_list:
+        d_temp = va.load(item)
+        d_add = {}
+        cuts = cut_func(d_temp)
+        d_keys = RQ_list if RQ_list else [item for item in d_temp if item.startswith('ss_')]
+        for key in d_keys:
+            d_add[key] = d_temp[key][...,cuts]
+        d_list.append(d_add)
+    d = {}
+    for key in d_keys:
+        d[key] = np.concatenate([item[key] for item in d_list], axis=-1)
+    return d
+
+
+
+
+
+
+
+
+
+
 
